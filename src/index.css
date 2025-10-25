@@ -28,6 +28,12 @@ button {
   font: inherit;
 }
 
+.input,
+select,
+textarea {
+  font: inherit;
+}
+
 .centered-page {
   padding: 4rem 1.5rem;
   width: 100%;
@@ -92,6 +98,140 @@ button {
 .mock-content {
   display: flex;
   justify-content: center;
+}
+
+.session-input,
+.note-input,
+select {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(25, 42, 86, 0.14);
+  background: #fff;
+  color: #0e1b2b;
+}
+
+.roster-card {
+  padding: 2rem 2rem 1.5rem;
+  overflow-x: auto;
+}
+
+.roster-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.roster-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.tag.success {
+  background: rgba(46, 204, 113, 0.18);
+  color: #1d873b;
+}
+
+.tag.warning {
+  background: rgba(241, 196, 15, 0.2);
+  color: #9c6a05;
+}
+
+.tag.danger {
+  background: rgba(231, 76, 60, 0.18);
+  color: #b32b1f;
+}
+
+.tag.info {
+  background: rgba(52, 152, 219, 0.2);
+  color: #1f6fa7;
+}
+
+.tag.neutral {
+  background: rgba(10, 10, 10, 0.08);
+  color: rgba(14, 27, 43, 0.75);
+}
+
+.tag.bonus {
+  background: rgba(155, 89, 182, 0.18);
+  color: #7a2fa0;
+}
+
+.roster-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.roster-table th,
+.roster-table td {
+  text-align: left;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid rgba(15, 27, 43, 0.08);
+  vertical-align: top;
+}
+
+.roster-table tbody tr:hover {
+  background: rgba(31, 60, 136, 0.05);
+}
+
+.student-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.participation-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.participation-cell input[type="range"] {
+  flex: 1;
+}
+
+.bonus-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  background: rgba(31, 60, 136, 0.08);
+  color: #1f3c88;
+  border: 1px solid rgba(31, 60, 136, 0.18);
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chip:hover {
+  background: rgba(31, 60, 136, 0.2);
+}
+
+.chip-active {
+  background: #1f3c88;
+  color: #fff;
+  border-color: #1f3c88;
+  box-shadow: 0 10px 20px -12px rgba(31, 60, 136, 0.6);
 }
 
 .primary-btn {
