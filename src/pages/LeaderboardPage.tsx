@@ -1,91 +1,231 @@
-type LeaderboardEntry = {
-  id: number;
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+
+type Course = {
+  id: string;
   name: string;
-  points: number;
-  streak: number;
-  group: string;
 };
-const leaderboardData: LeaderboardEntry[] = [
-  { id: 1, name: "Alex Johnson", points: 1280, streak: 12, group: "Hillside HS" },
-  { id: 2, name: "Maya Chen", points: 1195, streak: 9, group: "Ridgeview Prep" },
-  { id: 3, name: "Jordan Smith", points: 1080, streak: 10, group: "Summit Academy" },
-  { id: 4, name: "Priya Patel", points: 1045, streak: 7, group: "Hillside HS" },
-  { id: 5, name: "Diego Ramirez", points: 1002, streak: 5, group: "Eastview STEM" },
-  { id: 6, name: "Alicia Gomez", points: 984, streak: 6, group: "North Ridge" },
-  { id: 7, name: "Samir Ali", points: 955, streak: 4, group: "Summit Academy" },
-  { id: 8, name: "Emily Turner", points: 930, streak: 5, group: "Ridgeview Prep" },
-  { id: 9, name: "Noah Daniels", points: 910, streak: 3, group: "Hillside HS" },
-  { id: 10, name: "Layla Scott", points: 898, streak: 2, group: "Harbor Charter" },
-  { id: 11, name: "Owen Blake", points: 870, streak: 4, group: "North Ridge" },
-  { id: 12, name: "Sofia Martinez", points: 848, streak: 3, group: "Eastview STEM" },
-];
-const formatInitials = (name: string) =>
-  name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+
+type LeaderboardEntry = {
+  studentId: string;
+  name: string;
+  cohort: string | null;
+  courseId: string;
+  attendanceRate: number;
+  participationScore: number;
+  bonusPoints: number;
+  riskLevel: "low" | "medium" | "high";
+};
+
+const riskTagClass: Record<LeaderboardEntry["riskLevel"], string> = {
+  low: "tag success",
+  medium: "tag warning",
+  high: "tag danger"
+};
+
 const LeaderboardPage = () => {
-  const podium = leaderboardData.slice(0, 3);
-  const remainder = leaderboardData.slice(3);
-  const podiumOrder = [
-    { entry: podium[1], placement: 2 },
-    { entry: podium[0], placement: 1 },
-    { entry: podium[2], placement: 3 },
-  ];
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const courseParam = searchParams.get("courseId");
+
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState<string>(() => courseParam ?? "");
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [coursesError, setCoursesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadCourses = async () => {
+      try {
+        setCoursesError(null);
+        const response = await fetch("/api/courses");
+        if (!response.ok) {
+          throw new Error("Failed to load courses");
+        }
+        const data = (await response.json()) as { courses: Course[] };
+        setCourses(data.courses);
+        if (!selectedCourseId && data.courses.length > 0) {
+          const initial = courseParam ?? data.courses[0].id;
+          setSelectedCourseId(initial);
+          setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("courseId", initial);
+            return next;
+          });
+        }
+      } catch (err) {
+        setCoursesError(err instanceof Error ? err.message : "Unknown error loading courses");
+      }
+    };
+
+    loadCourses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const loadLeaderboard = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const query = selectedCourseId ? `?courseId=${encodeURIComponent(selectedCourseId)}` : "";
+        const response = await fetch(`/api/leaderboard${query}`);
+        if (!response.ok) {
+          throw new Error("Failed to load leaderboard");
+        }
+        const data = (await response.json()) as { leaderboard: LeaderboardEntry[] };
+        setEntries(data.leaderboard);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error loading leaderboard");
+        setEntries([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadLeaderboard();
+  }, [selectedCourseId]);
+
+  const summary = useMemo(() => {
+    if (!entries.length) {
+      return null;
+    }
+
+    const totalStudents = entries.length;
+    const highRisk = entries.filter((entry) => entry.riskLevel === "high").length;
+    const averageAttendance = Math.round(
+      entries.reduce((sum, entry) => sum + entry.attendanceRate, 0) / totalStudents
+    );
+    const averageParticipation = (
+      entries.reduce((sum, entry) => sum + entry.participationScore, 0) / totalStudents
+    ).toFixed(1);
+    const bonusPoints = entries.reduce((sum, entry) => sum + entry.bonusPoints, 0);
+
+    return {
+      totalStudents,
+      highRisk,
+      averageAttendance,
+      averageParticipation,
+      bonusPoints
+    };
+  }, [entries]);
+
+  const handleCourseChange = (courseId: string) => {
+    setSelectedCourseId(courseId);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("courseId", courseId);
+      return next;
+    });
+  };
+
+  const handleRowClick = (entry: LeaderboardEntry) => {
+    navigate(`/mock/student?courseId=${entry.courseId}&studentId=${entry.studentId}`);
+  };
+
   return (
-    <div className="card leaderboard-card stack">
-      <header className="leaderboard-header">
-        <div>
-          <h2>Program Leaderboard</h2>
-          <p className="subtle">
-            Top performers based on weekly engagement points across partner schools.
-          </p>
-        </div>
-        <span className="leaderboard-period">Week 12</span>
-      </header>
-      <section className="leaderboard-podium" aria-label="Top three students">
-        {podiumOrder.map(({ entry, placement }) =>
-          entry ? (
-            <article key={entry.id} className={`podium-place rank-${placement}`}>
-              <span className="podium-label">{placement === 1 ? "1st" : placement === 2 ? "2nd" : "3rd"}</span>
-              <div className="podium-avatar">{formatInitials(entry.name)}</div>
-              <h3 className="podium-name">{entry.name}</h3>
-              <p className="podium-meta subtle">{entry.group}</p>
-              <p className="podium-points">{entry.points.toLocaleString()} pts</p>
-              <span className="podium-streak">🔥 {entry.streak}-week streak</span>
-              <div className={`podium-base base-${placement}`} />
-            </article>
-          ) : (
-            <div key={`podium-empty-${placement}`} className="podium-placeholder" />
-          ),
-        )}
-      </section>
-      <section className="leaderboard-table">
-        <header className="leaderboard-table-header subtle">
-          <span className="col-rank">Rank</span>
-          <span className="col-name">Name</span>
-          <span className="col-group">Group</span>
-          <span className="col-points">Points</span>
-          <span className="col-streak">Streak</span>
+    <div className="stack">
+      <div className="card stack">
+        <header className="flex-between">
+          <div>
+            <h2>Class leaderboard</h2>
+            <p className="subtle">
+              Attendance and participation standings update as teachers log sessions.
+            </p>
+          </div>
         </header>
-        <ol className="leaderboard-list">
-          {remainder.map((entry, index) => (
-            <li key={entry.id} className="leaderboard-row">
-              <span className="col-rank">{index + 4}</span>
-              <span className="col-name">
-                <span className="row-avatar">{formatInitials(entry.name)}</span>
-                {entry.name}
-              </span>
-              <span className="col-group subtle">{entry.group}</span>
-              <span className="col-points">{entry.points.toLocaleString()} pts</span>
-              <span className="col-streak subtle">{entry.streak}-week</span>
-            </li>
-          ))}
-        </ol>
-      </section>
+
+        {coursesError ? (
+          <div className="error-message">{coursesError}</div>
+        ) : (
+          <div className="selector-grid">
+            <div className="selector-field">
+              <label htmlFor="course-select">Course</label>
+              <select
+                id="course-select"
+                value={selectedCourseId}
+                onChange={(event) => handleCourseChange(event.target.value)}
+              >
+                <option value="" disabled>
+                  Select course
+                </option>
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {summary && (
+          <div className="leaderboard-summary">
+            <span className="tag neutral">Students {summary.totalStudents}</span>
+            <span className="tag success">Avg attendance {summary.averageAttendance}%</span>
+            <span className="tag neutral">Avg participation {summary.averageParticipation}</span>
+            <span className="tag bonus">Bonus total {summary.bonusPoints}</span>
+            {summary.highRisk > 0 && (
+              <span className="tag danger">{summary.highRisk} high risk</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>Leaderboard</h3>
+        {loading ? (
+          <p className="subtle">Loading leaderboard…</p>
+        ) : error ? (
+          <p className="error-message">{error}</p>
+        ) : entries.length === 0 ? (
+          <p className="subtle">No entries yet. Log attendance to populate standings.</p>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Student</th>
+                <th>Attendance</th>
+                <th>Participation</th>
+                <th>Bonus</th>
+                <th>Risk</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry, index) => (
+                <tr
+                  key={entry.studentId}
+                  className="clickable-row"
+                  onClick={() => handleRowClick(entry)}
+                >
+                  <td>{index + 1}</td>
+                  <td>
+                    <div className="student-cell">
+                      <strong>{entry.name}</strong>
+                      <span className="subtle">{entry.cohort ?? "No cohort"}</span>
+                    </div>
+                  </td>
+                  <td>{entry.attendanceRate}%</td>
+                  <td>{entry.participationScore.toFixed(1)}</td>
+                  <td>{entry.bonusPoints}</td>
+                  <td>
+                    <span className={riskTagClass[entry.riskLevel]}>
+                      {entry.riskLevel === "high"
+                        ? "High"
+                        : entry.riskLevel === "medium"
+                        ? "Medium"
+                        : "Low"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 };
+
 export default LeaderboardPage;

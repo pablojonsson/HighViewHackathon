@@ -1,11 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type AttendanceStatus = "present" | "late" | "excused" | "absent";
+
+interface Course {
+  id: string;
+  name: string;
+}
 
 interface Student {
   id: string;
   name: string;
-  cohort: string;
+  cohort: string | null;
+  courseId: string;
 }
 
 interface StudentEntry {
@@ -15,43 +21,115 @@ interface StudentEntry {
   notes: string;
 }
 
-const roster: Student[] = [
-  { id: "stu-101", name: "Avery Johnson", cohort: "Algebra II" },
-  { id: "stu-205", name: "Jordan Smith", cohort: "Algebra II" },
-  { id: "stu-309", name: "Emilia Garcia", cohort: "Geometry Honors" },
-  { id: "stu-412", name: "Noah Williams", cohort: "Geometry Honors" },
-  { id: "stu-523", name: "Kai Thompson", cohort: "AP Calculus" }
-];
+interface RosterResponse {
+  roster: Student[];
+}
+
+interface CoursesResponse {
+  courses: Course[];
+}
+
+interface SaveSessionPayload {
+  sessionName: string;
+  courseId: string;
+  occurredAt?: string;
+  entries: Array<StudentEntry & { studentId: string }>;
+}
 
 const bonusOptions = [
   { key: "lead", label: "Led discussion (+2)" },
   { key: "mentor", label: "Peer mentor (+1)" },
   { key: "project", label: "Project milestone (+3)" }
-];
+] as const;
 
-const defaultEntry: StudentEntry = {
+const bonusPointMap: Record<(typeof bonusOptions)[number]["key"], number> = {
+  lead: 2,
+  mentor: 1,
+  project: 3
+};
+
+const createDefaultEntry = (): StudentEntry => ({
   status: "present",
   participation: 3,
   bonus: [],
   notes: ""
-};
+});
 
 const DataInputPage = () => {
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState<string>("");
   const [sessionName, setSessionName] = useState("");
-  const [entries, setEntries] = useState<Record<string, StudentEntry>>(
-    () =>
-      roster.reduce<Record<string, StudentEntry>>((acc, student) => {
-        acc[student.id] = { ...defaultEntry };
-        return acc;
-      }, {})
-  );
+  const [roster, setRoster] = useState<Student[]>([]);
+  const [entries, setEntries] = useState<Record<string, StudentEntry>>({});
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterError, setRosterError] = useState<string | null>(null);
+  const [coursesError, setCoursesError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    const loadCourses = async () => {
+      try {
+        setCoursesError(null);
+        const response = await fetch("/api/courses");
+        if (!response.ok) {
+          throw new Error("Failed to load courses");
+        }
+        const data = (await response.json()) as CoursesResponse;
+        setCourses(data.courses);
+        if (data.courses.length && !selectedCourseId) {
+          setSelectedCourseId(data.courses[0].id);
+        }
+      } catch (error) {
+        setCoursesError(error instanceof Error ? error.message : "Unknown error loading courses");
+      }
+    };
+
+    loadCourses();
+  }, []);
+
+  useEffect(() => {
+    const loadRoster = async () => {
+      if (!selectedCourseId) {
+        setRoster([]);
+        return;
+      }
+
+      try {
+        setRosterLoading(true);
+        setRosterError(null);
+        const response = await fetch(`/api/roster?courseId=${encodeURIComponent(selectedCourseId)}`);
+        if (!response.ok) {
+          throw new Error("Failed to load roster");
+        }
+        const data = (await response.json()) as RosterResponse;
+        setRoster(data.roster);
+      } catch (error) {
+        setRosterError(error instanceof Error ? error.message : "Unknown error loading roster");
+      } finally {
+        setRosterLoading(false);
+      }
+    };
+
+    loadRoster();
+  }, [selectedCourseId]);
+
+  useEffect(() => {
+    setEntries((prev) => {
+      const next: Record<string, StudentEntry> = {};
+      roster.forEach((student) => {
+        next[student.id] = prev[student.id] ? { ...prev[student.id] } : createDefaultEntry();
+      });
+      return next;
+    });
+  }, [roster]);
 
   const updateEntry = (studentId: string, field: keyof StudentEntry, value: unknown) => {
     setEntries((prev) => ({
       ...prev,
       [studentId]: {
-        ...prev[studentId],
+        ...(prev[studentId] ?? createDefaultEntry()),
         [field]: value
       }
     }));
@@ -59,7 +137,7 @@ const DataInputPage = () => {
 
   const toggleBonus = (studentId: string, bonusKey: string) => {
     setEntries((prev) => {
-      const current = prev[studentId];
+      const current = prev[studentId] ?? createDefaultEntry();
       const hasBonus = current.bonus.includes(bonusKey);
       return {
         ...prev,
@@ -85,24 +163,65 @@ const DataInputPage = () => {
 
     roster.forEach((student) => {
       const entry = entries[student.id];
-      counts[entry.status] += 1;
+      if (!entry) {
+        return;
+      }
+
+      const statusKey = entry.status as keyof typeof counts;
+      counts[statusKey] += 1;
       counts.totalParticipation += entry.participation;
       entry.bonus.forEach((bonusKey) => {
-        if (bonusKey === "lead") counts.bonusPoints += 2;
-        if (bonusKey === "mentor") counts.bonusPoints += 1;
-        if (bonusKey === "project") counts.bonusPoints += 3;
+        counts.bonusPoints += bonusPointMap[bonusKey as keyof typeof bonusPointMap] ?? 0;
       });
     });
 
     return {
       ...counts,
-      avgParticipation: (counts.totalParticipation / roster.length).toFixed(1)
+      avgParticipation:
+        roster.length > 0 ? (counts.totalParticipation / roster.length).toFixed(1) : "0.0"
     };
-  }, [entries]);
+  }, [entries, roster]);
 
-  const handleSave = () => {
-    setSubmitted(true);
-    window.setTimeout(() => setSubmitted(false), 2500);
+  const handleSave = async () => {
+    if (!selectedCourseId) {
+      setSaveError("Select a course before saving.");
+      return;
+    }
+
+    setSaveError(null);
+    setSubmitted(false);
+
+    const payload: SaveSessionPayload = {
+      sessionName: sessionName || "Untitled session",
+      courseId: selectedCourseId,
+      entries: roster.map((student) => ({
+        studentId: student.id,
+        ...(entries[student.id] ?? createDefaultEntry())
+      }))
+    };
+
+    try {
+      setSaving(true);
+      const response = await fetch("/api/sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to save session");
+      }
+
+      setSubmitted(true);
+      window.setTimeout(() => setSubmitted(false), 2500);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Unknown error during save");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -110,10 +229,36 @@ const DataInputPage = () => {
       <div className="card stack">
         <h2>Session log</h2>
         <p className="subtle">
-          Track attendance, participation, and bonus actions for today&apos;s session. Data is mocked for now—wire to Google Classroom once tokens are ready.
+          Track attendance, participation, and bonus actions for today&apos;s session. Data now
+          persists via the Node/Express + PostgreSQL backend.
         </p>
+
+        {coursesError ? (
+          <div className="error-message">{coursesError}</div>
+        ) : (
+          <div className="course-picker">
+            <label htmlFor="course" className="subtle" style={{ fontWeight: 600 }}>
+              Course
+            </label>
+            <select
+              id="course"
+              value={selectedCourseId}
+              onChange={(event) => setSelectedCourseId(event.target.value)}
+            >
+              <option value="" disabled>
+                Select a course
+              </option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <label className="subtle" style={{ fontWeight: 600 }}>
-          Session name
+          Session title
         </label>
         <input
           className="session-input"
@@ -138,95 +283,107 @@ const DataInputPage = () => {
           </div>
         </div>
 
-        <table className="roster-table">
-          <thead>
-            <tr>
-              <th>Student</th>
-              <th>Status</th>
-              <th>Participation</th>
-              <th>Bonus actions</th>
-              <th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {roster.map((student) => {
-              const entry = entries[student.id];
-              return (
-                <tr key={student.id}>
-                  <td>
-                    <div className="student-cell">
-                      <strong>{student.name}</strong>
-                      <span className="subtle">{student.cohort}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <select
-                      value={entry.status}
-                      onChange={(event) =>
-                        updateEntry(student.id, "status", event.target.value as AttendanceStatus)
-                      }
-                    >
-                      <option value="present">Present</option>
-                      <option value="late">Late</option>
-                      <option value="excused">Excused</option>
-                      <option value="absent">Absent</option>
-                    </select>
-                  </td>
-                  <td>
-                    <div className="participation-cell">
-                      <input
-                        type="range"
-                        min={0}
-                        max={5}
-                        step={1}
-                        value={entry.participation}
+        {rosterLoading ? (
+          <div className="subtle">Loading roster...</div>
+        ) : rosterError ? (
+          <div className="error-message">{rosterError}</div>
+        ) : roster.length === 0 ? (
+          <div className="subtle">No students on this roster yet.</div>
+        ) : (
+          <table className="roster-table">
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Status</th>
+                <th>Participation</th>
+                <th>Bonus actions</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {roster.map((student) => {
+                const entry = entries[student.id] ?? createDefaultEntry();
+                return (
+                  <tr key={student.id}>
+                    <td>
+                      <div className="student-cell">
+                        <strong>{student.name}</strong>
+                        <span className="subtle">{student.cohort ?? "No cohort"}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <select
+                        value={entry.status}
                         onChange={(event) =>
-                          updateEntry(student.id, "participation", Number(event.target.value))
+                          updateEntry(student.id, "status", event.target.value as AttendanceStatus)
                         }
-                      />
-                      <span>{entry.participation}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="bonus-chip-group">
-                      {bonusOptions.map((bonus) => (
-                        <button
-                          key={bonus.key}
-                          type="button"
-                          className={
-                            entry.bonus.includes(bonus.key)
-                              ? "chip chip-active"
-                              : "chip"
+                      >
+                        <option value="present">Present</option>
+                        <option value="late">Late</option>
+                        <option value="excused">Excused</option>
+                        <option value="absent">Absent</option>
+                      </select>
+                    </td>
+                    <td>
+                      <div className="participation-cell">
+                        <input
+                          type="range"
+                          min={0}
+                          max={5}
+                          step={1}
+                          value={entry.participation}
+                          onChange={(event) =>
+                            updateEntry(student.id, "participation", Number(event.target.value))
                           }
-                          onClick={() => toggleBonus(student.id, bonus.key)}
-                        >
-                          {bonus.label}
-                        </button>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <input
-                      className="note-input"
-                      placeholder="Optional quick note"
-                      value={entry.notes}
-                      onChange={(event) => updateEntry(student.id, "notes", event.target.value)}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                        />
+                        <span>{entry.participation}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="bonus-chip-group">
+                        {bonusOptions.map((bonus) => (
+                          <button
+                            key={bonus.key}
+                            type="button"
+                            className={
+                              entry.bonus.includes(bonus.key) ? "chip chip-active" : "chip"
+                            }
+                            onClick={() => toggleBonus(student.id, bonus.key)}
+                          >
+                            {bonus.label}
+                          </button>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <input
+                        className="note-input"
+                        placeholder="Optional quick note"
+                        value={entry.notes}
+                        onChange={(event) => updateEntry(student.id, "notes", event.target.value)}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="card stack">
-        <button className="primary-btn" onClick={handleSave}>
-          Save mock log
+        <button
+          className="primary-btn"
+          onClick={handleSave}
+          disabled={saving || roster.length === 0 || !selectedCourseId}
+        >
+          {saving ? "Saving..." : "Save session"}
         </button>
-        {submitted && <span className="tag success">Saved locally (mock)</span>}
+        {saveError && <span className="tag danger">{saveError}</span>}
+        {submitted && <span className="tag success">Saved to database</span>}
         <p className="subtle">
-          Future enhancement: push updates to Google Classroom submissions and write to DynamoDB.
+          After connecting Google Classroom, the roster endpoint will pull live data before writing
+          to Postgres.
         </p>
       </div>
     </div>
