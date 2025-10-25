@@ -49,6 +49,51 @@ button {
   font-size: 1.3rem;
 }
 
+.mock-layout {
+  width: min(960px, 100%);
+  margin: 3rem auto;
+  padding: 0 1.5rem 3rem;
+}
+
+.mock-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.mock-header h1 {
+  margin: 0;
+  font-size: 1.8rem;
+}
+
+.mock-nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.mock-nav a {
+  padding: 0.6rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(25, 42, 86, 0.12);
+  color: #1f3c88;
+  background: rgba(31, 60, 136, 0.08);
+}
+
+.mock-nav a:hover {
+  background: rgba(31, 60, 136, 0.16);
+}
+
+.mock-back {
+  display: inline-flex;
+  width: fit-content;
+}
+
+.mock-content {
+  display: flex;
+  justify-content: center;
+}
+
 .primary-btn {
   background: #1f3c88;
   color: white;
