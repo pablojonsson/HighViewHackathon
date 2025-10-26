@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 type AttendanceStatus = "present" | "late" | "excused" | "absent";
@@ -68,17 +69,20 @@ const createDefaultEntry = (): StudentEntry => ({
 const DataInputPage = () => {
   const { user } = useAuth();
   const isTeacher = user?.role === "teacher";
+  const navigate = useNavigate();
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>("");
   const [sessionName, setSessionName] = useState("");
   const [roster, setRoster] = useState<Student[]>([]);
   const [entries, setEntries] = useState<Record<string, StudentEntry>>({});
+  const [selectedStudents, setSelectedStudents] = useState<Record<string, boolean>>({});
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState<string | null>(null);
   const [coursesError, setCoursesError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!isTeacher || !user) {
@@ -149,6 +153,13 @@ const DataInputPage = () => {
       });
       return next;
     });
+    setSelectedStudents((prev) => {
+      const next: Record<string, boolean> = {};
+      roster.forEach((student) => {
+        next[student.id] = prev[student.id] ?? true;
+      });
+      return next;
+    });
   }, [roster]);
 
   const updateStatus = (studentId: string, status: AttendanceStatus) => {
@@ -176,6 +187,44 @@ const DataInputPage = () => {
       };
     });
   };
+
+  const toggleStudentSelection = (studentId: string) => {
+    setSelectedStudents((prev) => {
+      const current = prev[studentId] ?? true;
+      return {
+        ...prev,
+        [studentId]: !current
+      };
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedStudents((prev) => {
+      const currentAllSelected = roster.every((student) => prev[student.id] ?? true);
+      const next: Record<string, boolean> = {};
+      roster.forEach((student) => {
+        next[student.id] = !currentAllSelected;
+      });
+      return next;
+    });
+  };
+
+  const selectedCount = useMemo(
+    () =>
+      roster.reduce(
+        (count, student) => ((selectedStudents[student.id] ?? true) ? count + 1 : count),
+        0
+      ),
+    [roster, selectedStudents]
+  );
+
+  const allSelected = roster.length > 0 && selectedCount === roster.length;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selectedCount > 0 && !allSelected;
+    }
+  }, [selectedCount, allSelected]);
 
   const summary = useMemo(() => {
     const counts: Record<AttendanceStatus, number> = {
@@ -222,7 +271,9 @@ const DataInputPage = () => {
       return;
     }
 
-    if (!sessionName.trim()) {
+    const trimmedSessionName = sessionName.trim();
+
+    if (!trimmedSessionName) {
       setSaveError("Section name is required.");
       return;
     }
@@ -230,10 +281,26 @@ const DataInputPage = () => {
     setSaveError(null);
     setSubmitted(false);
 
+    if (selectedCount === 0) {
+      setSaveError("Select at least one student before saving.");
+      return;
+    }
+
+    const selectedRoster = roster.filter((student) => selectedStudents[student.id]);
+    const duplicateCheck = new Set<string>();
+    for (const student of selectedRoster) {
+      const key = `${selectedCourseId}::${trimmedSessionName.toLowerCase()}::${student.id}`;
+      if (duplicateCheck.has(key)) {
+        setSaveError("Duplicate entries detected for the selected students.");
+        return;
+      }
+      duplicateCheck.add(key);
+    }
+
     const payload: SaveSessionPayload = {
-      sessionName: sessionName.trim(),
+      sessionName: trimmedSessionName,
       courseId: selectedCourseId,
-      entries: roster.map((student) => {
+      entries: selectedRoster.map((student) => {
         const entry = entries[student.id] ?? createDefaultEntry();
         return {
           studentId: student.id,
@@ -255,11 +322,18 @@ const DataInputPage = () => {
 
       if (!response.ok) {
         const message = await response.text();
+        if (response.status === 409) {
+          setSaveError(
+            message || "Identical data input already exists for the selected students."
+          );
+          return;
+        }
         throw new Error(message || "Failed to save session");
       }
 
       setSubmitted(true);
       window.setTimeout(() => setSubmitted(false), 2500);
+      navigate("/mock/leaderboard");
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Unknown error during save");
     } finally {
@@ -272,8 +346,7 @@ const DataInputPage = () => {
       <div className="card stack">
         <h2>Session log</h2>
         <p className="subtle">
-          Track attendance and bonus actions for today&apos;s session. Data now persists via the
-          Node/Express + PostgreSQL backend.
+          Track attendance and bonus actions for today&apos;s session.
         </p>
 
         {coursesError ? (
@@ -306,6 +379,7 @@ const DataInputPage = () => {
         <input
           className="session-input"
           placeholder="e.g. Section 2 - 10/25"
+          maxLength={25}
           value={sessionName}
           onChange={(event) => setSessionName(event.target.value)}
         />
@@ -336,6 +410,19 @@ const DataInputPage = () => {
           <table className="roster-table">
             <thead>
               <tr>
+                <th className="select-column">
+                  <label className="select-all-label">
+                    <input
+                      className="select-checkbox"
+                      ref={selectAllRef}
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      aria-label="Select all students"
+                    />
+                    <span>Select</span>
+                  </label>
+                </th>
                 <th>Student</th>
                 <th>Status</th>
                 <th>Attendance pts</th>
@@ -347,6 +434,15 @@ const DataInputPage = () => {
                 const entry = entries[student.id] ?? createDefaultEntry();
                 return (
                   <tr key={student.id}>
+                    <td className="select-column">
+                      <input
+                        className="select-checkbox"
+                        type="checkbox"
+                        checked={selectedStudents[student.id] ?? true}
+                        onChange={() => toggleStudentSelection(student.id)}
+                        aria-label={`Select ${student.name}`}
+                      />
+                    </td>
                     <td>
                       <div className="student-cell">
                         <strong>{student.name}</strong>
@@ -405,8 +501,6 @@ const DataInputPage = () => {
         {saveError && <span className="tag danger">{saveError}</span>}
         {submitted && <span className="tag success">Saved to database</span>}
         <p className="subtle">
-          After connecting Google Classroom, the roster endpoint will pull live data before writing
-          to Postgres.
         </p>
       </div>
     </div>

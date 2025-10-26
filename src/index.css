@@ -526,6 +526,29 @@ select {
   background: rgba(31, 60, 136, 0.05);
 }
 
+.select-column {
+  width: 60px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.select-all-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: rgba(14, 27, 43, 0.75);
+  user-select: none;
+}
+
+.select-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #1f3c88;
+}
+
 .student-cell {
   display: flex;
   flex-direction: column;
@@ -595,9 +618,26 @@ select {
   box-shadow: 0 18px 32px -22px rgba(18, 45, 98, 0.4);
 }
 
+.stat-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .stat-card h3 {
   margin: 0;
   font-size: 2rem;
+}
+
+.attendance-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.attendance-row h3 {
+  margin: 0;
 }
 
 .leaderboard-summary {
@@ -627,6 +667,175 @@ select {
 
 .data-table tbody tr:hover {
   background: rgba(31, 60, 136, 0.05);
+}
+
+.actions-column {
+  width: 72px;
+  text-align: center;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  padding: 0.35rem;
+  border-radius: 0.6rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, transform 0.2s ease, color 0.2s ease;
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-btn.danger {
+  color: #b32b1f;
+}
+
+.icon-btn.danger:hover:not(:disabled) {
+  background: rgba(179, 43, 31, 0.12);
+  transform: translateY(-1px);
+}
+
+.icon-btn.neutral {
+  color: #1f3c88;
+}
+
+.icon-btn.neutral:hover:not(:disabled) {
+  background: rgba(31, 60, 136, 0.12);
+  transform: translateY(-1px);
+}
+
+.icon-btn.pulse-danger {
+  animation: pulseDanger 1.6s ease-in-out infinite;
+  color: #b32b1f;
+}
+
+.icon-btn.pulse-danger:hover:not(:disabled) {
+  background: rgba(179, 43, 31, 0.18);
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid rgba(31, 60, 136, 0.45);
+  outline-offset: 2px;
+}
+
+.icon-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.icon-btn.pulse-danger:disabled {
+  animation: none;
+}
+
+.email-column {
+  width: 80px;
+  text-align: center;
+}
+
+@keyframes pulseDanger {
+  0% {
+    transform: translateY(0);
+    box-shadow: 0 0 0 0 rgba(179, 43, 31, 0.35);
+  }
+  50% {
+    transform: translateY(-1px);
+    box-shadow: 0 0 0 10px rgba(179, 43, 31, 0);
+  }
+  100% {
+    transform: translateY(0);
+    box-shadow: 0 0 0 0 rgba(179, 43, 31, 0);
+  }
+}
+
+.btn {
+  border: none;
+  border-radius: 0.75rem;
+  padding: 0.6rem 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.btn.neutral {
+  background: rgba(15, 27, 43, 0.08);
+  color: rgba(15, 27, 43, 0.8);
+}
+
+.btn.neutral:hover:not(:disabled) {
+  background: rgba(15, 27, 43, 0.15);
+}
+
+.btn.danger {
+  background: #b32b1f;
+  color: #fff;
+  box-shadow: 0 12px 24px -16px rgba(179, 43, 31, 0.6);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: #912116;
+  transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn:focus-visible {
+  outline: 2px solid rgba(31, 60, 136, 0.45);
+  outline-offset: 3px;
+}
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 15, 32, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 1000;
+}
+
+.confirm-modal {
+  background: #fff;
+  border-radius: 1.1rem;
+  padding: 1.8rem;
+  box-shadow: 0 28px 65px -30px rgba(14, 27, 43, 0.45);
+  max-width: min(420px, 100%);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  text-align: left;
+}
+
+.confirm-modal h4 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.confirm-modal p {
+  margin: 0;
+  color: rgba(14, 27, 43, 0.72);
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
 }
 
 .clickable-row {

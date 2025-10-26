@@ -353,15 +353,16 @@ app.get("/api/students/:studentId", async (req, res) => {
   const userId = typeof req.query.userId === "string" ? req.query.userId : null;
 
   try {
-    const studentResult = await query<{
+  const studentResult = await query<{
       id: string;
       name: string;
       cohort: string | null;
       course_id: string;
       user_id: string | null;
+      email: string | null;
     }>(
       `
-        SELECT id, name, cohort, course_id, user_id
+        SELECT id, name, cohort, course_id, user_id, email
         FROM students
         WHERE id = $1
       `,
@@ -469,7 +470,8 @@ app.get("/api/students/:studentId", async (req, res) => {
         id: student.id,
         name: student.name,
         cohort: student.cohort,
-        courseId: student.course_id
+        courseId: student.course_id,
+        email: student.email
       },
       stats: {
         totalSessions,
@@ -659,9 +661,10 @@ app.get("/api/leaderboard", async (req, res) => {
       name: string;
       cohort: string | null;
       course_id: string;
+      email: string | null;
       total_sessions: number;
       attendance_rate: number;
-      avg_attendance_points: number;
+      attendance_points_total: number;
       bonus_points: number;
       session_names: Array<string | null>;
     }>(
@@ -671,6 +674,7 @@ app.get("/api/leaderboard", async (req, res) => {
           st.name,
           st.cohort,
           st.course_id,
+          st.email,
           COUNT(DISTINCT s.id) AS total_sessions,
           COALESCE(AVG(CASE WHEN ar.status = 'present' THEN 1 ELSE 0 END)::float * 100, 0) AS attendance_rate,
           COALESCE(SUM(ar.participation)::float, 0) AS attendance_points_total,
@@ -693,6 +697,7 @@ app.get("/api/leaderboard", async (req, res) => {
       name: string;
       cohort: string | null;
       course_id: string;
+      email: string | null;
       total_sessions: number;
       attendance_rate: number;
       attendance_points_total: number;
@@ -704,6 +709,7 @@ app.get("/api/leaderboard", async (req, res) => {
       name: row.name,
       cohort: row.cohort,
       courseId: row.course_id,
+      email: row.email,
       attendanceRate: Math.round(row.attendance_rate),
       attendancePointsTotal: Number(row.attendance_points_total.toFixed(1)),
       bonusPoints: Number(row.bonus_points),

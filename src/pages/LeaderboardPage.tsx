@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -12,6 +12,7 @@ type LeaderboardEntry = {
   name: string;
   cohort: string | null;
   courseId: string;
+  email: string | null;
   attendanceRate: number;
   attendancePointsTotal: number;
   bonusPoints: number;
@@ -50,6 +51,14 @@ const LeaderboardPage = () => {
       : ["all"]
   );
   const [hasFetchedSections, setHasFetchedSections] = useState(false);
+
+  const openGmailCompose = useCallback((email: string | null) => {
+    if (!email) {
+      return;
+    }
+    const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -272,6 +281,7 @@ const LeaderboardPage = () => {
   }, [selectedSection, setSearchParams]);
 
   const showRiskColumn = role === "teacher";
+  const showEmailColumn = role === "teacher";
 
   const handleRowClick = (entry: LeaderboardEntry) => {
     const canOpen =
@@ -378,6 +388,7 @@ const LeaderboardPage = () => {
                 <th>Attendance pts</th>
                 <th>Bonus pts</th>
                 {showRiskColumn && <th>Risk</th>}
+                {showEmailColumn && <th className="email-column">Email</th>}
               </tr>
             </thead>
             <tbody>
@@ -423,6 +434,39 @@ const LeaderboardPage = () => {
                               ? "Medium"
                               : "Low"}
                         </span>
+                      </td>
+                    )}
+                    {showEmailColumn && (
+                      <td className="email-column">
+                        <button
+                          type="button"
+                          className={`icon-btn neutral${
+                            entry.riskLevel === "high" && entry.email ? " pulse-danger" : ""
+                          }`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openGmailCompose(entry.email);
+                          }}
+                          disabled={!entry.email}
+                          aria-label={
+                            entry.email
+                              ? `Email ${entry.name}`
+                              : `Email unavailable for ${entry.name}`
+                          }
+                        >
+                          <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path
+                              d="M4.75 6h14.5A1.75 1.75 0 0 1 21 7.75v8.5A1.75 1.75 0 0 1 19.25 18H4.75A1.75 1.75 0 0 1 3 16.25v-8.5A1.75 1.75 0 0 1 4.75 6Zm0 .75L12 11.5l7.25-4.75H4.75Zm0 1.31v8.19h14.5V8.06l-6.9 4.53a0.75 0.75 0 0 1-.8 0L4.75 8.06Z"
+                              fill="currentColor"
+                            />
+                          </svg>
+                        </button>
                       </td>
                     )}
                   </tr>

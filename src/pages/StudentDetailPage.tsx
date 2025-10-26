@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -22,6 +22,7 @@ type StudentDetailResponse = {
     name: string;
     cohort: string | null;
     courseId: string;
+    email: string | null;
   };
   stats: {
     totalSessions: number;
@@ -78,9 +79,22 @@ const StudentDetailPage = () => {
   const [studentData, setStudentData] = useState<StudentDetailResponse | null>(null);
   const [studentLoading, setStudentLoading] = useState(false);
   const [studentError, setStudentError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; sessionName: string } | null>(
+    null
+  );
 
   const [selectedCourseId, setSelectedCourseId] = useState<string>(() => courseParam ?? "");
   const [selectedStudentId, setSelectedStudentId] = useState<string>(() => studentParam ?? "");
+
+  const openGmailCompose = useCallback((email: string | null) => {
+    if (!email) {
+      return;
+    }
+    const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -230,39 +244,41 @@ const StudentDetailPage = () => {
     }
   }, [isStudent, myStudents, selectedCourseId, selectedStudentId, setSearchParams]);
 
-  useEffect(() => {
-    const loadStudentDetail = async () => {
-      if (!user || !selectedStudentId) {
-        setStudentData(null);
-        return;
-      }
+  const fetchStudentDetail = useCallback(async () => {
+    if (!user || !selectedStudentId) {
+      setDeleteError(null);
+      setStudentData(null);
+      return;
+    }
 
-      try {
-        setStudentLoading(true);
-        setStudentError(null);
-        const params = new URLSearchParams({
-          role: user.role,
-          userId: user.id
-        });
-        const response = await fetch(`/api/students/${selectedStudentId}?${params.toString()}`);
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error("Student not found");
-          }
-          throw new Error("Failed to load student diagnostics");
+    try {
+      setStudentLoading(true);
+      setStudentError(null);
+      setDeleteError(null);
+      const params = new URLSearchParams({
+        role: user.role,
+        userId: user.id
+      });
+      const response = await fetch(`/api/students/${selectedStudentId}?${params.toString()}`);
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("Student not found");
         }
-        const data = (await response.json()) as StudentDetailResponse;
-        setStudentData(data);
-      } catch (error) {
-        setStudentError(error instanceof Error ? error.message : "Unknown error loading student");
-        setStudentData(null);
-      } finally {
-        setStudentLoading(false);
+        throw new Error("Failed to load student diagnostics");
       }
-    };
+      const data = (await response.json()) as StudentDetailResponse;
+      setStudentData(data);
+    } catch (error) {
+      setStudentError(error instanceof Error ? error.message : "Unknown error loading student");
+      setStudentData(null);
+    } finally {
+      setStudentLoading(false);
+    }
+  }, [selectedStudentId, user]);
 
-    loadStudentDetail();
-  }, [user, selectedStudentId]);
+  useEffect(() => {
+    fetchStudentDetail();
+  }, [fetchStudentDetail]);
 
   const summary = useMemo(() => {
     if (!studentData) {
@@ -303,6 +319,47 @@ const StudentDetailPage = () => {
       next.set("studentId", studentId);
       return next;
     });
+  };
+
+  const handleRequestDelete = (recordId: string, sessionName: string) => {
+    if (!isTeacher) {
+      return;
+    }
+    setDeleteError(null);
+    setPendingDelete({ id: recordId, sessionName });
+  };
+
+  const handleDeleteSession = async (recordId: string) => {
+    if (!isTeacher || !user) {
+      return;
+    }
+
+    try {
+      setDeleteError(null);
+      setDeletingRecordId(recordId);
+      const params = new URLSearchParams({
+        role: user.role,
+        userId: user.id
+      });
+      const response = await fetch(
+        `/api/attendance-records/${recordId}?${params.toString()}`,
+        {
+          method: "DELETE"
+        }
+      );
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to delete entry");
+      }
+
+      await fetchStudentDetail();
+      setPendingDelete(null);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Failed to delete entry");
+    } finally {
+      setDeletingRecordId(null);
+    }
   };
 
   return (
@@ -383,7 +440,32 @@ const StudentDetailPage = () => {
           <div className="card-grid stat-grid">
             <div className="stat-card">
               <p className="subtle">Attendance rate</p>
-              <h3>{summary ? `${summary.attendanceRate}%` : "0%"}</h3>
+              <div className="attendance-row">
+                <h3>{summary ? `${summary.attendanceRate}%` : "0%"}</h3>
+                {isTeacher && studentData.student.email && (
+                  <button
+                    type="button"
+                    className={`icon-btn neutral${
+                      summary?.riskLevel === "high" ? " pulse-danger" : ""
+                    }`}
+                    onClick={() => openGmailCompose(studentData.student.email)}
+                    aria-label={`Email ${studentData.student.name}`}
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M4.75 6h14.5A1.75 1.75 0 0 1 21 7.75v8.5A1.75 1.75 0 0 1 19.25 18H4.75A1.75 1.75 0 0 1 3 16.25v-8.5A1.75 1.75 0 0 1 4.75 6Zm0 .75L12 11.5l7.25-4.75H4.75Zm0 1.31v8.19h14.5V8.06l-6.9 4.53a0.75 0.75 0 0 1-.8 0L4.75 8.06Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
               <span
                 className={
                   summary?.riskLevel === "high"
@@ -415,43 +497,105 @@ const StudentDetailPage = () => {
             {studentData.recentSessions.length === 0 ? (
               <p className="subtle">No sessions have been logged yet for this student.</p>
             ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Session</th>
-                    <th>Status</th>
-                    <th>Bonus</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {studentData.recentSessions.map((session) => {
-                    const occurred = session.occurredAt
-                      ? new Date(session.occurredAt).toLocaleString()
-                      : "-";
-                    const bonus = session.bonus.length
-                      ? session.bonus
-                          .map((item) => `${bonusLabels[item.code]} (+${item.points})`)
-                          .join(", ")
-                      : "-";
-                    return (
-                      <tr key={session.id}>
-                        <td>{occurred}</td>
-                        <td>{session.sessionName}</td>
-                        <td>
-                          <span className={statusTagClass[session.status]}>
-                            {statusLabel[session.status]}
-                          </span>
-                        </td>
-                        <td>{bonus}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <>
+                {isTeacher && deleteError && <p className="error-message">{deleteError}</p>}
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Session</th>
+                      <th>Status</th>
+                      <th>Bonus</th>
+                      {isTeacher && <th className="actions-column">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {studentData.recentSessions.map((session) => {
+                      const occurred = session.occurredAt
+                        ? new Date(session.occurredAt).toLocaleString()
+                        : "-";
+                      const bonus = session.bonus.length
+                        ? session.bonus
+                            .map((item) => `${bonusLabels[item.code]} (+${item.points})`)
+                            .join(", ")
+                        : "-";
+                      return (
+                        <tr key={session.id}>
+                          <td>{occurred}</td>
+                          <td>{session.sessionName}</td>
+                          <td>
+                            <span className={statusTagClass[session.status]}>
+                              {statusLabel[session.status]}
+                            </span>
+                          </td>
+                          <td>{bonus}</td>
+                          {isTeacher && (
+                            <td className="actions-column">
+                              <button
+                                type="button"
+                                className="icon-btn danger"
+                                onClick={() => handleRequestDelete(session.id, session.sessionName)}
+                                disabled={deletingRecordId === session.id}
+                                aria-label="Delete this entry"
+                              >
+                                <svg
+                                  width="18"
+                                  height="18"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                >
+                                  <path
+                                    d="M9 4.5h6m-8 3h10m-1 0-.666 10c-.045.687-.621 1.25-1.31 1.25H9.976c-.689 0-1.265-.563-1.31-1.25L8 7.5m3 3v6m4-6v6"
+                                    stroke="currentColor"
+                                    strokeWidth="1.5"
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </>
             )}
           </div>
         </>
+      )}
+      {isTeacher && pendingDelete && (
+        <div className="confirm-backdrop">
+          <div
+            className="confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-entry-title"
+            aria-describedby="delete-entry-description"
+          >
+            <h4 id="delete-entry-title">Delete entry?</h4>
+            <p id="delete-entry-description">Are you sure you want to delete this entry?</p>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="btn neutral"
+                onClick={() => setPendingDelete(null)}
+                disabled={deletingRecordId === pendingDelete.id}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn danger"
+                onClick={() => handleDeleteSession(pendingDelete.id)}
+                disabled={deletingRecordId === pendingDelete.id}
+              >
+                {deletingRecordId === pendingDelete.id ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
