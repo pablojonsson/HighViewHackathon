@@ -1,5 +1,7 @@
 import "dotenv/config";
 import express, { Request, Response } from "express";
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+// @ts-ignore
 import cors from "cors";
 import { query, withTransaction, PoolClient } from "./db";
 import { syncClassroomFromCode } from "./services/googleClassroom";
@@ -114,7 +116,7 @@ app.get("/api/roster", async (req, res) => {
     );
 
     res.json({
-      roster: result.rows.map((row) => ({
+      roster: result.rows.map((row: { id: string; name: string; cohort: string | null; course_id: string }) => ({
         id: row.id,
         name: row.name,
         cohort: row.cohort,
@@ -166,8 +168,12 @@ app.post("/api/sessions", async (req: Request, res: Response) => {
 
       const insertedSessionId = sessionResult.rows[0].id;
 
+      if (!Array.isArray(payload.entries)) {
+        throw new Error("entries must be an array");
+      }
+
       for (const entry of payload.entries) {
-        if (!entry.studentId || typeof entry.studentId !== "string") {
+        if (!entry || typeof entry.studentId !== "string") {
           throw new Error("Invalid studentId in entries");
         }
 
@@ -267,7 +273,7 @@ app.get("/api/students/by-user", async (req, res) => {
     );
 
     res.json({
-      students: result.rows.map((row) => ({
+      students: result.rows.map((row: { id: string; name: string; cohort: string | null; course_id: string }) => ({
         id: row.id,
         name: row.name,
         cohort: row.cohort,
@@ -359,7 +365,7 @@ app.get("/api/students/:studentId", async (req, res) => {
       [studentId]
     );
 
-    const recordIds = recordsResult.rows.map((record) => record.id);
+    const recordIds = recordsResult.rows.map((record: { id: string }) => record.id);
     const bonusResult =
       recordIds.length > 0
         ? await query<{
@@ -377,22 +383,22 @@ app.get("/api/students/:studentId", async (req, res) => {
         : { rows: [] };
 
     const bonusByRecord = new Map<string, Array<{ code: string; points: number }>>();
-    bonusResult.rows.forEach((row) => {
+    bonusResult.rows.forEach((row: { attendance_record_id: string; code: string; points: number }) => {
       const existing = bonusByRecord.get(row.attendance_record_id) || [];
       existing.push({ code: row.code, points: row.points });
       bonusByRecord.set(row.attendance_record_id, existing);
     });
 
     const totalSessions = recordsResult.rowCount;
-    const presentSessions = recordsResult.rows.filter((record) => record.status === "present").length;
+    const presentSessions = recordsResult.rows.filter((record: { status: AttendanceStatus }) => record.status === "present").length;
     const attendanceRate = totalSessions > 0 ? Math.round((presentSessions / totalSessions) * 100) : 0;
     const averageParticipation =
       totalSessions > 0
-        ? (recordsResult.rows.reduce((sum, record) => sum + record.participation, 0) /
+        ? (recordsResult.rows.reduce((sum: number, record: { participation: number }) => sum + record.participation, 0) /
             totalSessions
           ).toFixed(1)
         : "0.0";
-    const bonusPoints = bonusResult.rows.reduce((sum, row) => sum + row.points, 0);
+    const bonusPoints = bonusResult.rows.reduce((sum: number, row: { points: number }) => sum + row.points, 0);
 
     res.json({
       student: {
@@ -407,7 +413,14 @@ app.get("/api/students/:studentId", async (req, res) => {
         averageParticipation,
         bonusPoints
       },
-      recentSessions: recordsResult.rows.map((record) => ({
+      recentSessions: recordsResult.rows.map((record: {
+        id: string;
+        status: AttendanceStatus;
+        participation: number;
+        notes: string;
+        occurred_at: string;
+        session_name: string;
+      }) => ({
         id: record.id,
         status: record.status,
         participation: record.participation,
@@ -440,7 +453,7 @@ app.get("/api/leaderboard", async (req, res) => {
         `,
         [userId]
       );
-      allowedCourseIds = allowed.rows.map((row) => row.course_id);
+      allowedCourseIds = allowed.rows.map((row: { course_id: string }) => row.course_id);
     } else if (roleParam === "student" && userId) {
       const allowed = await query<{ course_id: string }>(
         `
@@ -450,7 +463,7 @@ app.get("/api/leaderboard", async (req, res) => {
         `,
         [userId]
       );
-      allowedCourseIds = allowed.rows.map((row) => row.course_id);
+      allowedCourseIds = allowed.rows.map((row: { course_id: string }) => row.course_id);
     }
 
     if (allowedCourseIds && allowedCourseIds.length === 0) {
@@ -507,7 +520,16 @@ app.get("/api/leaderboard", async (req, res) => {
       params
     );
 
-    const leaderboard = result.rows.map((row) => ({
+    const leaderboard = result.rows.map((row: {
+      student_id: string;
+      name: string;
+      cohort: string | null;
+      course_id: string;
+      total_sessions: number;
+      attendance_rate: number;
+      avg_participation: number;
+      bonus_points: number;
+    }) => ({
       studentId: row.student_id,
       name: row.name,
       cohort: row.cohort,

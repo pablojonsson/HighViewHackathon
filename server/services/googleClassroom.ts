@@ -262,7 +262,7 @@ const storeUserTokens = async (
     typeof tokens.scope === "string"
       ? tokens.scope
       : Array.isArray(tokens.scope)
-      ? tokens.scope.join(" ")
+      ? (tokens.scope as string[]).join(" ")
       : classroomScopes.join(" ");
 
   await client.query(
@@ -414,7 +414,9 @@ export const syncClassroomFromCode = async (
 
         const primaryTeacherId = teacherIds[0] ?? teacherUser.id;
         await upsertCourse(client, course, primaryTeacherId);
-        await upsertCourseTeachers(client, course.id, teacherIds.length > 0 ? teacherIds : [teacherUser.id]);
+        if (course.id) {
+          await upsertCourseTeachers(client, course.id, teacherIds.length > 0 ? teacherIds : [teacherUser.id]);
+        }
 
         for (const student of students) {
           const profile = toProfile(student.profile);
@@ -426,8 +428,8 @@ export const syncClassroomFromCode = async (
         }
 
         summary.courses.push({
-          id: course.id,
-          name: course.name,
+          id: course.id!,
+          name: course.name!,
           section: course.section ?? null,
           studentCount: students.length
         });
@@ -508,7 +510,7 @@ export const syncClassroomFromCode = async (
         name: userProfile.name,
         email: userProfile.email ?? null
       },
-      courses: studentsResult.rows.map((row) => ({
+      courses: studentsResult.rows.map((row: { id: string; name: string; cohort: string | null; course_id: string }) => ({
         id: row.course_id,
         name: row.cohort ?? row.course_id,
         section: row.cohort,
