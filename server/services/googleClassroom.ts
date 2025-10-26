@@ -7,7 +7,7 @@ type CodeExchangeRequest = {
   code: string;
 };
 
-type SyncSummary = {
+type TeacherSyncSummary = {
   teacher: {
     id: string;
     name: string;
@@ -20,6 +20,40 @@ type SyncSummary = {
     studentCount: number;
   }>;
 };
+
+type StudentSyncSummary = {
+  student: {
+    id: string;
+    name: string;
+    email?: string | null;
+  };
+  courses: Array<{
+    id: string;
+    name: string;
+    section?: string | null;
+    studentRecordId: string;
+  }>;
+};
+
+type SyncResult =
+  | {
+      user: {
+        id: string;
+        name: string;
+        email?: string | null;
+        role: "teacher";
+      };
+      summary: TeacherSyncSummary;
+    }
+  | {
+      user: {
+        id: string;
+        name: string;
+        email?: string | null;
+        role: "student";
+      };
+      summary: StudentSyncSummary;
+    };
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? process.env.VITE_GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET =
@@ -80,7 +114,7 @@ const exchangeCodeForTokens = async ({
   return { oauthClient, tokens: tokenResponse.tokens };
 };
 
-const fetchTeacherProfile = async (authClient: OAuth2Client): Promise<GoogleUserProfile> => {
+const fetchUserProfile = async (authClient: OAuth2Client): Promise<GoogleUserProfile> => {
   const { data } = await oauth2.userinfo.get({
     auth: authClient
   });
@@ -314,80 +348,182 @@ const toProfile = (person: classroom_v1.Schema$UserProfile | undefined | null): 
 
 export const syncClassroomFromCode = async (
   payload: CodeExchangeRequest
-): Promise<SyncSummary> => {
+): Promise<SyncResult> => {
   const { oauthClient, tokens } = await exchangeCodeForTokens(payload);
-  const teacherProfile = await fetchTeacherProfile(oauthClient);
-  const courseResponse = await classroom.courses.list({
-    auth: oauthClient,
-    courseStates: ["ACTIVE"],
-    pageSize: 100
-  });
+  const userProfile = await fetchUserProfile(oauthClient);
 
-  const courses = courseResponse.data.courses ?? [];
-  const courseBundles: Array<{
-    course: classroom_v1.Schema$Course;
-    teachers: classroom_v1.Schema$Teacher[];
-    students: classroom_v1.Schema$Student[];
-  }> = [];
+  const teacherCourseResponse = await classroom.courses
+    .list({
+      auth: oauthClient,
+      teacherId: "me",
+      courseStates: ["ACTIVE"],
+      pageSize: 20
+    })
+    .catch((error) => {
+      if ((error as { code?: number }).code === 403) {
+        return { data: { courses: [] } };
+      }
+      throw error;
+    });
 
-  for (const course of courses) {
-    if (!course.id || !course.name) {
-      continue;
+  const teacherCourses = teacherCourseResponse.data.courses ?? [];
+
+  if (teacherCourses.length > 0) {
+    const courseBundles: Array<{
+      course: classroom_v1.Schema$Course;
+      teachers: classroom_v1.Schema$Teacher[];
+      students: classroom_v1.Schema$Student[];
+    }> = [];
+
+    for (const course of teacherCourses) {
+      if (!course.id || !course.name) {
+        continue;
+      }
+
+      const [teachers, students] = await Promise.all([
+        loadCourseTeachers(oauthClient, course.id),
+        loadCourseStudents(oauthClient, course.id)
+      ]);
+
+      courseBundles.push({ course, teachers, students });
     }
 
-    const [teachers, students] = await Promise.all([
-      loadCourseTeachers(oauthClient, course.id),
-      loadCourseStudents(oauthClient, course.id)
-    ]);
+    return withTransaction<SyncResult>(async (client) => {
+      const teacherUser = await upsertUser(client, userProfile, "teacher");
+      await storeUserTokens(client, teacherUser.id, tokens);
 
-    courseBundles.push({ course, teachers, students });
+      const summary: TeacherSyncSummary = {
+        teacher: {
+          id: teacherUser.id,
+          name: userProfile.name,
+          email: userProfile.email ?? null
+        },
+        courses: []
+      };
+
+      for (const { course, teachers, students } of courseBundles) {
+        const teacherIds: string[] = [];
+        for (const teacher of teachers) {
+          const profile = toProfile(teacher.profile);
+          if (!profile) {
+            continue;
+          }
+          const upserted = await upsertUser(client, profile, "teacher");
+          teacherIds.push(upserted.id);
+        }
+
+        const primaryTeacherId = teacherIds[0] ?? teacherUser.id;
+        await upsertCourse(client, course, primaryTeacherId);
+        await upsertCourseTeachers(client, course.id, teacherIds.length > 0 ? teacherIds : [teacherUser.id]);
+
+        for (const student of students) {
+          const profile = toProfile(student.profile);
+          if (!profile) {
+            continue;
+          }
+          const upserted = await upsertUser(client, profile, "student");
+          await upsertStudent(client, student, course, upserted.id);
+        }
+
+        summary.courses.push({
+          id: course.id,
+          name: course.name,
+          section: course.section ?? null,
+          studentCount: students.length
+        });
+      }
+
+      return {
+        user: {
+          id: teacherUser.id,
+          name: userProfile.name,
+          email: userProfile.email ?? null,
+          role: "teacher"
+        },
+        summary
+      };
+    });
   }
 
-  return withTransaction<SyncSummary>(async (client) => {
-    const teacherUser = await upsertUser(client, teacherProfile, "teacher");
-    await storeUserTokens(client, teacherUser.id, tokens);
+  const studentCourseResponse = await classroom.courses
+    .list({
+      auth: oauthClient,
+      studentId: "me",
+      courseStates: ["ACTIVE"],
+      pageSize: 100
+    })
+    .catch((error) => {
+      if ((error as { code?: number }).code === 403) {
+        return { data: { courses: [] } };
+      }
+      throw error;
+    });
 
-    const summary: SyncSummary = {
-      teacher: {
-        id: teacherUser.id,
-        name: teacherProfile.name,
-        email: teacherProfile.email ?? null
-      },
-      courses: []
-    };
+  const studentCourses = studentCourseResponse.data.courses ?? [];
 
-    for (const { course, teachers, students } of courseBundles) {
-      const teacherIds: string[] = [];
-      for (const teacher of teachers) {
-        const profile = toProfile(teacher.profile);
-        if (!profile) {
-          continue;
-        }
-        const upserted = await upsertUser(client, profile, "teacher");
-        teacherIds.push(upserted.id);
+  return withTransaction<SyncResult>(async (client) => {
+    const studentUser = await upsertUser(client, userProfile, "student");
+    await storeUserTokens(client, studentUser.id, tokens);
+
+    for (const course of studentCourses) {
+      if (!course.id || !course.name) {
+        continue;
       }
 
-      const primaryTeacherId = teacherIds[0] ?? teacherUser.id;
-      await upsertCourse(client, course, primaryTeacherId);
-      await upsertCourseTeachers(client, course.id, teacherIds.length > 0 ? teacherIds : [teacherUser.id]);
+      await upsertCourse(client, course, null);
 
-      for (const student of students) {
-        const profile = toProfile(student.profile);
-        if (!profile) {
-          continue;
+      const stubStudent: classroom_v1.Schema$Student = {
+        userId: userProfile.googleUserId,
+        profile: {
+          id: userProfile.googleUserId,
+          name: {
+            fullName: userProfile.name
+          },
+          emailAddress: userProfile.email ?? undefined,
+          photoUrl: userProfile.avatarUrl ?? undefined
         }
-        const upserted = await upsertUser(client, profile, "student");
-        await upsertStudent(client, student, course, upserted.id);
-      }
+      };
 
-      summary.courses.push({
-        id: course.id,
-        name: course.name,
-        section: course.section ?? null,
-        studentCount: students.length
-      });
+      await upsertStudent(client, stubStudent, course, studentUser.id);
     }
 
-    return summary;
+    const studentsResult = await client.query<{
+      id: string;
+      name: string;
+      cohort: string | null;
+      course_id: string;
+    }>(
+      `
+        SELECT id, name, cohort, course_id
+        FROM students
+        WHERE user_id = $1
+        ORDER BY name ASC
+      `,
+      [studentUser.id]
+    );
+
+    const summary: StudentSyncSummary = {
+      student: {
+        id: studentUser.id,
+        name: userProfile.name,
+        email: userProfile.email ?? null
+      },
+      courses: studentsResult.rows.map((row) => ({
+        id: row.course_id,
+        name: row.cohort ?? row.course_id,
+        section: row.cohort,
+        studentRecordId: row.id
+      }))
+    };
+
+    return {
+      user: {
+        id: studentUser.id,
+        name: userProfile.name,
+        email: userProfile.email ?? null,
+        role: "student"
+      },
+      summary
+    };
   });
 };
