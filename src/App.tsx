@@ -82,7 +82,12 @@ const MockLayout = () => {
   return (
     <div className="mock-layout">
       <header className="mock-header">
-        <h1>HighView Engagement</h1>
+        <div className="mock-header-top">
+          <h1>HighView Engagement</h1>
+          <div className="mock-user subtle">
+            Signed in as <strong>{user.name}</strong> ({user.role})
+          </div>
+        </div>
         <nav className="mock-nav">
           <Link to="/mock/leaderboard">Leaderboard</Link>
           {isTeacher ? (
@@ -95,9 +100,6 @@ const MockLayout = () => {
           )}
           <Link to="/logout">Sign out</Link>
         </nav>
-        <span className="mock-back subtle">
-          Signed in as {user.name} ({user.role})
-        </span>
       </header>
       <main className="mock-content">
         <Outlet />

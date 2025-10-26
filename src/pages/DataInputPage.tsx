@@ -86,7 +86,7 @@ const DataInputPage = () => {
         });
         const response = await fetch(`/api/courses?${params.toString()}`);
         if (!response.ok) {
-          throw new Error("Failed to load courses");
+          throw new Error("Failed to load companies");
         }
         const data = (await response.json()) as CoursesResponse;
         setCourses(data.courses);
@@ -94,7 +94,7 @@ const DataInputPage = () => {
           setSelectedCourseId(data.courses[0].id);
         }
       } catch (error) {
-        setCoursesError(error instanceof Error ? error.message : "Unknown error loading courses");
+        setCoursesError(error instanceof Error ? error.message : "Unknown error loading companies");
       }
     };
 
@@ -206,7 +206,7 @@ const DataInputPage = () => {
     }
 
     if (!selectedCourseId) {
-      setSaveError("Select a course before saving.");
+      setSaveError("Select a company before saving.");
       return;
     }
 
@@ -265,7 +265,7 @@ const DataInputPage = () => {
         ) : (
           <div className="course-picker">
             <label htmlFor="course" className="subtle" style={{ fontWeight: 600 }}>
-              Course
+              Company
             </label>
             <select
               id="course"
@@ -273,7 +273,7 @@ const DataInputPage = () => {
               onChange={(event) => setSelectedCourseId(event.target.value)}
             >
               <option value="" disabled>
-                Select a course
+                Select a company
               </option>
               {courses.map((course) => (
                 <option key={course.id} value={course.id}>

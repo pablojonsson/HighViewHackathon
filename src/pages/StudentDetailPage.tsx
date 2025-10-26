@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 type Course = {
@@ -62,7 +62,6 @@ const bonusLabels: Record<BonusCode, string> = {
 };
 
 const StudentDetailPage = () => {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
 
@@ -100,7 +99,7 @@ const StudentDetailPage = () => {
         });
         const response = await fetch(`/api/courses?${params.toString()}`);
         if (!response.ok) {
-          throw new Error("Failed to load courses");
+          throw new Error("Failed to load companies");
         }
         const data = (await response.json()) as { courses: Course[] };
         setCourses(data.courses);
@@ -115,7 +114,7 @@ const StudentDetailPage = () => {
           });
         }
       } catch (error) {
-        setCoursesError(error instanceof Error ? error.message : "Unknown error loading courses");
+        setCoursesError(error instanceof Error ? error.message : "Unknown error loading companies");
       }
     };
 
@@ -310,10 +309,6 @@ const StudentDetailPage = () => {
     });
   };
 
-  const handleBack = () => {
-    navigate("/mock/leaderboard");
-  };
-
   return (
     <div className="stack">
       <div className="card stack">
@@ -326,9 +321,6 @@ const StudentDetailPage = () => {
                 : "Drill into attendance trends, participation, and support needs for a single learner."}
             </p>
           </div>
-          <button className="secondary-btn" type="button" onClick={handleBack}>
-            Back to leaderboard
-          </button>
         </header>
 
         {coursesError ? (
@@ -336,14 +328,14 @@ const StudentDetailPage = () => {
         ) : (
           <div className="selector-grid">
             <div className="selector-field">
-              <label htmlFor="course-select">Course</label>
+              <label htmlFor="course-select">Company</label>
               <select
                 id="course-select"
                 value={selectedCourseId}
                 onChange={(event) => handleCourseChange(event.target.value)}
               >
                 <option value="" disabled>
-                  Select course
+                  Select company
                 </option>
                 {courses.map((course) => (
                   <option key={course.id} value={course.id}>
@@ -420,7 +412,6 @@ const StudentDetailPage = () => {
             <div className="stat-card">
               <p className="subtle">Sessions logged</p>
               <h3>{summary?.totalSessions ?? 0}</h3>
-              <span className="tag neutral">Last 30 sessions</span>
             </div>
             <div className="stat-card">
               <p className="subtle">Bonus points</p>
@@ -434,7 +425,7 @@ const StudentDetailPage = () => {
               <div>
                 <h3>{studentData.student.name}</h3>
                 <p className="subtle">
-                  {studentData.student.cohort ?? "No cohort"} - Course {studentData.student.courseId}
+                  {studentData.student.cohort ?? "No cohort"} · Company {studentData.student.courseId}
                 </p>
               </div>
             </header>

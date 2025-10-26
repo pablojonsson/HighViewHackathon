@@ -54,7 +54,7 @@ const LeaderboardPage = () => {
         });
         const response = await fetch(`/api/courses?${params.toString()}`);
         if (!response.ok) {
-          throw new Error("Failed to load courses");
+          throw new Error("Failed to load companies");
         }
         const data = (await response.json()) as { courses: Course[] };
         setCourses(data.courses);
@@ -69,7 +69,7 @@ const LeaderboardPage = () => {
           });
         }
       } catch (err) {
-        setCoursesError(err instanceof Error ? err.message : "Unknown error loading courses");
+        setCoursesError(err instanceof Error ? err.message : "Unknown error loading companies");
       }
     };
 
@@ -181,7 +181,7 @@ const LeaderboardPage = () => {
       <div className="card stack">
         <header className="flex-between">
           <div>
-            <h2>Class leaderboard</h2>
+            <h2>Leaderboard</h2>
             <p className="subtle">
               Attendance and participation standings update as teachers log sessions.
             </p>
@@ -193,14 +193,14 @@ const LeaderboardPage = () => {
         ) : (
           <div className="selector-grid">
             <div className="selector-field">
-              <label htmlFor="course-select">Course</label>
+              <label htmlFor="course-select">Company</label>
               <select
                 id="course-select"
                 value={selectedCourseId}
                 onChange={(event) => handleCourseChange(event.target.value)}
               >
                 <option value="" disabled>
-                  Select course
+                  Select company
                 </option>
                 {courses.map((course) => (
                   <option key={course.id} value={course.id}>
@@ -272,8 +272,8 @@ const LeaderboardPage = () => {
                         {entry.riskLevel === "high"
                           ? "High"
                           : entry.riskLevel === "medium"
-                          ? "Medium"
-                          : "Low"}
+                            ? "Medium"
+                            : "Low"}
                       </span>
                     </td>
                   </tr>
