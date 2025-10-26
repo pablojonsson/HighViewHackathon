@@ -500,6 +500,99 @@ app.get("/api/students/:studentId", async (req, res) => {
   }
 });
 
+app.delete("/api/attendance-records/:recordId", async (req: Request, res: Response) => {
+  const { recordId } = req.params;
+  const roleParam = typeof req.query.role === "string" ? req.query.role : null;
+  const userId = typeof req.query.userId === "string" ? req.query.userId : null;
+
+  if (!recordId) {
+    return res.status(400).send("recordId is required");
+  }
+
+  if (!roleParam || !userId) {
+    return res.status(400).send("role and userId are required");
+  }
+
+  if (roleParam !== "teacher") {
+    return res.status(403).send("Only teachers can delete entries");
+  }
+
+  const isPotentialUuid = /^[0-9a-fA-F-]{32,36}$/.test(recordId);
+  if (!isPotentialUuid) {
+    return res.status(400).send("Invalid recordId");
+  }
+
+  try {
+    const recordResult = await query<{ session_id: string; course_id: string }>(
+      `
+        SELECT ar.session_id, s.course_id
+        FROM attendance_records ar
+        JOIN sessions s ON s.id = ar.session_id
+        WHERE ar.id = $1
+      `,
+      [recordId]
+    );
+
+    if (recordResult.rowCount === 0) {
+      return res.status(404).send("Attendance record not found");
+    }
+
+    const { session_id: sessionId, course_id: courseId } = recordResult.rows[0];
+
+    const teacherResult = await query<{ exists: boolean }>(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM course_teachers
+          WHERE course_id = $1
+            AND user_id = $2
+        ) AS exists
+      `,
+      [courseId, userId]
+    );
+
+    if (!teacherResult.rows[0]?.exists) {
+      return res.status(403).send("Not authorized to delete this entry");
+    }
+
+    await withTransaction(async (client: PoolClient) => {
+      await client.query(
+        `
+          DELETE FROM attendance_records
+          WHERE id = $1
+        `,
+        [recordId]
+      );
+
+      const remainingResult = await client.query<{ remaining: string }>(
+        `
+          SELECT COUNT(*)::int AS remaining
+          FROM attendance_records
+          WHERE session_id = $1
+        `,
+        [sessionId]
+      );
+
+      const remaining = Number(remainingResult.rows[0]?.remaining ?? 0);
+
+      if (remaining === 0) {
+        await client.query(
+          `
+            DELETE FROM sessions
+            WHERE id = $1
+          `,
+          [sessionId]
+        );
+      }
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    console.error(`Failed to delete attendance record ${recordId}`, error);
+    res.status(500).send("Failed to delete attendance record");
+  }
+});
+
 app.get("/api/leaderboard", async (req, res) => {
   const courseId = typeof req.query.courseId === "string" ? req.query.courseId : null;
   const sessionNameRaw = typeof req.query.sessionName === "string" ? req.query.sessionName : null;
