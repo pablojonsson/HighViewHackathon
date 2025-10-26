@@ -2,6 +2,7 @@ import "dotenv/config";
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { query, withTransaction, PoolClient } from "./db";
+import { syncClassroomFromCode } from "./services/googleClassroom";
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
@@ -160,6 +161,22 @@ app.post("/api/sessions", async (req: Request, res: Response) => {
     res.status(500).send(
       error instanceof Error ? error.message : "Failed to save session"
     );
+  }
+});
+
+app.post("/api/classroom/sync", async (req, res) => {
+  const { code } = req.body ?? {};
+
+  if (typeof code !== "string") {
+    return res.status(400).json({ error: "code is required" });
+  }
+
+  try {
+    const summary = await syncClassroomFromCode({ code });
+    res.json(summary);
+  } catch (error) {
+    console.error("Failed to sync Google Classroom data", error);
+    res.status(500).json({ error: "Failed to sync Google Classroom data" });
   }
 });
 

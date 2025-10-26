@@ -4,10 +4,11 @@ import { useNavigate } from "react-router-dom";
 type GoogleCodeResponse = {
   code?: string;
   error?: string;
+  scope?: string;
 };
 
 type GoogleCodeClient = {
-  requestCode: () => void;
+  requestCode: (overrides?: Record<string, unknown>) => void;
 };
 
 declare global {
@@ -29,10 +30,20 @@ declare global {
 }
 
 const GOOGLE_SCRIPT_ID = "google-identity-services";
+const GOOGLE_SCOPES = [
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/classroom.courses.readonly",
+  "https://www.googleapis.com/auth/classroom.rosters.readonly",
+  "https://www.googleapis.com/auth/classroom.profile.emails",
+  "https://www.googleapis.com/auth/classroom.profile.photos"
+].join(" ");
 
 const LoginPage = () => {
   const navigate = useNavigate();
   const [isReady, setIsReady] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const codeClientRef = useRef<GoogleCodeClient | null>(null);
 
   useEffect(() => {
@@ -57,7 +68,7 @@ const LoginPage = () => {
 
       codeClientRef.current = window.google.accounts.oauth2.initCodeClient({
         client_id: clientId,
-        scope: "openid email profile",
+        scope: GOOGLE_SCOPES,
         ux_mode: "popup",
         callback: (response: GoogleCodeResponse) => {
           if (response.error) {
@@ -66,9 +77,35 @@ const LoginPage = () => {
           }
 
           if (response.code) {
-            // In a real app you would exchange `response.code` with your backend.
-            console.log("Received Google auth code:", response.code);
-            navigate("/mock/leaderboard");
+            setIsProcessing(true);
+
+            fetch("/api/classroom/sync", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                code: response.code
+              })
+            })
+              .then(async (res) => {
+                if (!res.ok) {
+                  const message = await res.text();
+                  throw new Error(
+                    message || "Failed to sync Google Classroom data."
+                  );
+                }
+
+                const payload = await res.json();
+                console.info("Synced Google Classroom data", payload);
+                navigate("/mock/leaderboard");
+              })
+              .catch((error) => {
+                console.error("Failed to sync Google Classroom data", error);
+              })
+              .finally(() => {
+                setIsProcessing(false);
+              });
           }
         },
       });
@@ -123,7 +160,10 @@ const LoginPage = () => {
       return;
     }
 
-    codeClientRef.current.requestCode();
+    codeClientRef.current.requestCode({
+      prompt: "consent",
+      scope: GOOGLE_SCOPES
+    });
   };
 
   return (
@@ -135,9 +175,9 @@ const LoginPage = () => {
       <button
         className="primary-btn"
         onClick={handleGoogleLogin}
-        disabled={!isReady}
+        disabled={!isReady || isProcessing}
       >
-        Continue with Google
+        {isProcessing ? "Syncing Google Classroom..." : "Continue with Google"}
       </button>
       <p className="subtle">Need access? Contact your program admin.</p>
     </div>
