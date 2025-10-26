@@ -1060,6 +1060,8 @@ select {
   border: 1px solid rgba(249, 198, 84, 0.85);
   background: linear-gradient(135deg, rgba(255, 238, 186, 0.7), rgba(255, 222, 133, 0.45));
   box-shadow: 0 12px 24px -16px rgba(249, 198, 84, 0.55);
+  position: relative;
+  isolation: isolate;
 }
 
 .leader-name.silver {
@@ -1092,4 +1094,33 @@ select {
 
 .leader-name.bronze::before {
   color: #c98c52;
+}
+
+.leader-name.gold::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 215, 67, 0.65), rgba(255, 215, 67, 0));
+  box-shadow:
+    0 0 18px rgba(255, 215, 67, 0.6),
+    0 0 36px rgba(255, 215, 67, 0.4);
+  z-index: -1;
+  animation: auroraGlow 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes auroraGlow {
+  0% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
 }
