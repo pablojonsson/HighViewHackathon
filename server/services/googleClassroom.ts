@@ -1,44 +1,6 @@
-pablooo
-pablo421
-Online
-
-pablooo — 9: 18 PM
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
-
-type Course = {
-  id: string;
-  Expand
-message.txt
-17 KB
 import { google, classroom_v1 } from "googleapis";
 import type { Credentials, OAuth2Client } from "google-auth-library";
-import { PoolClient, query, withTransaction } from "../db";
-
-type CodeExchangeRequest = {
-  code: string;
-  Expand
-message.txt
-20 KB
-import "dotenv/config";
-import express, { Request, Response } from "express";
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-// @ts-ignore
-import cors from "cors";
-import { query, withTransaction, PoolClient } from "./db";
-Expand
-message.txt
-18 KB
-
-Proplayz131
-proplayz131
-
-
-https://www.youtube.com/watch?v=pRJNfgPO188
-import { google, classroom_v1 } from "googleapis";
-import type { Credentials, OAuth2Client } from "google-auth-library";
-import { PoolClient, query, withTransaction } from "../db";
+import { query, withTransaction, PoolClient } from "../db";
 
 type CodeExchangeRequest = {
   code: string;
@@ -92,35 +54,6 @@ type SyncResult =
     summary: StudentSyncSummary;
   };
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? process.env.VITE_GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET =
-  process.env.GOOGLE_CLIENT_SECRET ??
-  process.env.VITE_GOOGLE_CLIENT_SECRET ??
-  process.env.GOGLE_CLIENT_SECRET ??
-  null;
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI ?? "postmessage";
-
-if (!GOOGLE_CLIENT_ID) {
-  throw new Error("GOOGLE_CLIENT_ID is not configured.");
-}
-
-if (!GOOGLE_CLIENT_SECRET) {
-  throw new Error("GOOGLE_CLIENT_SECRET is not configured.");
-}
-
-const classroom = google.classroom("v1");
-
-const classroomScopes = [
-  "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/userinfo.profile",
-  "https://www.googleapis.com/auth/classroom.courses.readonly",
-  "https://www.googleapis.com/auth/classroom.profile.emails",
-  "https://www.googleapis.com/auth/classroom.profile.photos",
-  "https://www.googleapis.com/auth/classroom.rosters.readonly"
-];
-
-const oauth2 = google.oauth2("v2");
-
 type GoogleUserProfile = {
   googleUserId: string;
   email?: string | null;
@@ -132,15 +65,41 @@ type UpsertUserResult = {
   id: string;
 };
 
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? process.env.VITE_GOOGLE_CLIENT_ID ?? null;
+const GOOGLE_CLIENT_SECRET =
+  process.env.GOOGLE_CLIENT_SECRET ?? process.env.VITE_GOOGLE_CLIENT_SECRET ?? null;
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI ?? "postmessage";
+
+if (!GOOGLE_CLIENT_ID) {
+  throw new Error("GOOGLE_CLIENT_ID is not configured.");
+}
+
+if (!GOOGLE_CLIENT_SECRET) {
+  throw new Error("GOOGLE_CLIENT_SECRET is not configured.");
+}
+
+const classroom = google.classroom("v1");
+const oauth2 = google.oauth2("v2");
+
+const classroomScopes = [
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+  "https://www.googleapis.com/auth/classroom.courses.readonly",
+  "https://www.googleapis.com/auth/classroom.profile.emails",
+  "https://www.googleapis.com/auth/classroom.profile.photos",
+  "https://www.googleapis.com/auth/classroom.rosters.readonly"
+];
+
 const normalizeString = (value?: string | null): string | null =>
   value?.trim() ? value.trim() : null;
 
-const getOAuthClient = () =>
-  new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET ?? undefined, GOOGLE_REDIRECT_URI);
+const getOAuthClient = (): OAuth2Client =>
+  new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
 
-const exchangeCodeForTokens = async ({
-  code
-}: CodeExchangeRequest): Promise<{ oauthClient: OAuth2Client; tokens: Credentials }> => {
+const exchangeCodeForTokens = async ({ code }: CodeExchangeRequest): Promise<{
+  oauthClient: OAuth2Client;
+  tokens: Credentials;
+}> => {
   const oauthClient = getOAuthClient();
   const tokenResponse = await oauthClient.getToken({
     code,
@@ -152,9 +111,7 @@ const exchangeCodeForTokens = async ({
 };
 
 const fetchUserProfile = async (authClient: OAuth2Client): Promise<GoogleUserProfile> => {
-  const { data } = await oauth2.userinfo.get({
-    auth: authClient
-  });
+  const { data } = await oauth2.userinfo.get({ auth: authClient });
 
   if (!data.id || !data.name) {
     throw new Error("Failed to load Google profile information.");
@@ -162,9 +119,9 @@ const fetchUserProfile = async (authClient: OAuth2Client): Promise<GoogleUserPro
 
   return {
     googleUserId: data.id,
-    email: data.email,
+    email: data.email ?? null,
     name: data.name,
-    avatarUrl: data.picture ?? undefined
+    avatarUrl: data.picture ?? null
   };
 };
 
@@ -197,9 +154,8 @@ const upsertCourse = async (
   client: PoolClient,
   course: classroom_v1.Schema$Course,
   primaryTeacherId: string | null
-) => {
-  const courseId = course.id;
-  if (!courseId || !course.name) {
+): Promise<void> => {
+  if (!course.id || !course.name) {
     return;
   }
 
@@ -216,7 +172,7 @@ const upsertCourse = async (
           course_state = EXCLUDED.course_state
     `,
     [
-      courseId,
+      course.id,
       course.name,
       course.id,
       course.section ?? null,
@@ -231,8 +187,9 @@ const upsertCourseTeachers = async (
   client: PoolClient,
   courseId: string,
   teacherIds: string[]
-) => {
+): Promise<void> => {
   await client.query(`DELETE FROM course_teachers WHERE course_id = $1`, [courseId]);
+
   for (const teacherId of teacherIds) {
     await client.query(
       `
@@ -250,12 +207,17 @@ const upsertStudent = async (
   student: classroom_v1.Schema$Student,
   course: classroom_v1.Schema$Course,
   userId: string
-) => {
-  if (!student.userId || !course.id) {
+): Promise<void> => {
+  if (!course.id) {
     return;
   }
 
-  const studentRowId = `gcls-${course.id}-${student.userId}`;
+  if (!student.userId && !student.profile?.id) {
+    return;
+  }
+
+  const googleUserId = student.userId ?? student.profile?.id ?? null;
+  const studentRowId = `gcls-${course.id}-${googleUserId ?? "unknown"}`;
   const fullName =
     student.profile?.name?.fullName ??
     student.profile?.name?.givenName ??
@@ -276,21 +238,15 @@ const upsertStudent = async (
           google_user_id = EXCLUDED.google_user_id,
           email = EXCLUDED.email
     `,
-    [studentRowId, fullName, cohort, course.id, userId, student.userId, email]
+    [studentRowId, fullName, cohort, course.id, userId, googleUserId, email]
   );
 };
 
 const storeUserTokens = async (
   client: PoolClient,
   userId: string,
-  tokens: {
-    access_token?: string | null;
-    refresh_token?: string | null;
-    scope?: string | null;
-    token_type?: string | null;
-    expiry_date?: number | null;
-  }
-) => {
+  tokens: Credentials
+): Promise<void> => {
   if (!tokens.access_token) {
     return;
   }
@@ -299,7 +255,7 @@ const storeUserTokens = async (
     typeof tokens.scope === "string"
       ? tokens.scope
       : Array.isArray(tokens.scope)
-        ? (tokens.scope as string[]).join(" ")
+        ? tokens.scope.join(" ")
         : classroomScopes.join(" ");
 
   await client.query(
@@ -338,9 +294,11 @@ const loadCourseTeachers = async (
       pageToken: nextPageToken ?? undefined,
       pageSize: 100
     });
+
     if (response.data.teachers) {
       teachers.push(...response.data.teachers);
     }
+
     nextPageToken = response.data.nextPageToken ?? undefined;
   } while (nextPageToken);
 
@@ -361,16 +319,20 @@ const loadCourseStudents = async (
       pageToken: nextPageToken ?? undefined,
       pageSize: 100
     });
+
     if (response.data.students) {
       students.push(...response.data.students);
     }
+
     nextPageToken = response.data.nextPageToken ?? undefined;
   } while (nextPageToken);
 
   return students;
 };
 
-const toProfile = (person: classroom_v1.Schema$UserProfile | undefined | null): GoogleUserProfile | null => {
+const toProfile = (
+  person: classroom_v1.Schema$UserProfile | null | undefined
+): GoogleUserProfile | null => {
   if (!person?.id || !person.name?.fullName) {
     return null;
   }
@@ -409,47 +371,19 @@ export const refreshTeacherCourseRoster = async ({
     return;
   }
 
-  const teacherResult = await query<{ google_user_id: string | null }>(
-    `
-      SELECT google_user_id
-      FROM users
-      WHERE id = $1
-    `,
-    [userId]
-  );
-
-  const teacherRow = teacherResult.rows[0];
-  if (!teacherRow?.google_user_id) {
-    return;
-  }
-
-  const storedTokens = tokenResult.rows[0];
   const oauthClient = getOAuthClient();
-  const credentials: Credentials = {
-    access_token: storedTokens.access_token,
-    refresh_token: storedTokens.refresh_token ?? undefined,
-    scope: storedTokens.scope ?? undefined,
-    token_type: storedTokens.token_type ?? undefined,
-    expiry_date: storedTokens.expiry_date
-      ? new Date(storedTokens.expiry_date).getTime()
-      : undefined
-  };
-
-  oauthClient.setCredentials(credentials);
+  oauthClient.setCredentials(tokenResult.rows[0]);
 
   try {
     await oauthClient.getAccessToken();
   } catch (error) {
-    console.error("Failed to refresh Google token for roster sync", error);
+    console.error("Failed to refresh OAuth token for roster sync", error);
     return;
   }
 
   try {
     const [courseResponse, teachers, students] = await Promise.all([
-      classroom.courses.get({
-        auth: oauthClient,
-        id: courseId
-      }),
+      classroom.courses.get({ auth: oauthClient, id: courseId }),
       loadCourseTeachers(oauthClient, courseId),
       loadCourseStudents(oauthClient, courseId)
     ]);
@@ -477,13 +411,9 @@ export const refreshTeacherCourseRoster = async ({
 
       const primaryTeacherId = teacherIds[0] ?? teacherUser.id;
       await upsertCourse(client, course, primaryTeacherId);
-      await upsertCourseTeachers(
-        client,
-        course.id!,
-        teacherIds.length > 0 ? teacherIds : [teacherUser.id]
-      );
+      await upsertCourseTeachers(client, course.id!, teacherIds.length > 0 ? teacherIds : [teacherUser.id]);
 
-      const activeGoogleStudentIds: string[] = [];
+      const activeGoogleIds: string[] = [];
 
       for (const student of students) {
         const profile = toProfile(student.profile);
@@ -494,21 +424,11 @@ export const refreshTeacherCourseRoster = async ({
         await upsertStudent(client, student, course, upserted.id);
         const googleId = student.userId ?? profile.googleUserId;
         if (googleId) {
-          activeGoogleStudentIds.push(googleId);
+          activeGoogleIds.push(googleId);
         }
       }
 
-      if (activeGoogleStudentIds.length > 0) {
-        await client.query(
-          `
-            DELETE FROM students
-            WHERE course_id = $1
-              AND google_user_id IS NOT NULL
-              AND google_user_id <> ALL($2::text[])
-          `,
-          [course.id, activeGoogleStudentIds]
-        );
-      } else {
+      if (activeGoogleIds.length === 0) {
         await client.query(
           `
             DELETE FROM students
@@ -517,6 +437,16 @@ export const refreshTeacherCourseRoster = async ({
           `,
           [course.id]
         );
+      } else {
+        await client.query(
+          `
+            DELETE FROM students
+            WHERE course_id = $1
+              AND google_user_id IS NOT NULL
+              AND google_user_id <> ALL($2::text[])
+          `,
+          [course.id, activeGoogleIds]
+        );
       }
     });
   } catch (error) {
@@ -524,9 +454,7 @@ export const refreshTeacherCourseRoster = async ({
   }
 };
 
-export const syncClassroomFromCode = async (
-  payload: CodeExchangeRequest
-): Promise<SyncResult> => {
+export const syncClassroomFromCode = async (payload: CodeExchangeRequest): Promise<SyncResult> => {
   const { oauthClient, tokens } = await exchangeCodeForTokens(payload);
   const userProfile = await fetchUserProfile(oauthClient);
 
@@ -592,12 +520,9 @@ export const syncClassroomFromCode = async (
 
         const primaryTeacherId = teacherIds[0] ?? teacherUser.id;
         await upsertCourse(client, course, primaryTeacherId);
-        if (course.id) {
-          await upsertCourseTeachers(client, course.id, teacherIds.length > 0 ? teacherIds : [teacherUser.id]);
-        }
+        await upsertCourseTeachers(client, course.id!, teacherIds.length > 0 ? teacherIds : [teacherUser.id]);
 
-        const activeGoogleStudentIds: string[] = [];
-
+        const activeGoogleIds: string[] = [];
         for (const student of students) {
           const profile = toProfile(student.profile);
           if (!profile) {
@@ -607,36 +532,34 @@ export const syncClassroomFromCode = async (
           await upsertStudent(client, student, course, upserted.id);
           const googleId = student.userId ?? profile.googleUserId;
           if (googleId) {
-            activeGoogleStudentIds.push(googleId);
+            activeGoogleIds.push(googleId);
           }
         }
 
-        if (course.id) {
-          if (activeGoogleStudentIds.length === 0) {
-            await client.query(
-              `
-                DELETE FROM students
-                WHERE course_id = $1
-                  AND google_user_id IS NOT NULL
-              `,
-              [course.id]
-            );
-          } else {
-            await client.query(
-              `
-                DELETE FROM students
-                WHERE course_id = $1
-                  AND google_user_id IS NOT NULL
-                  AND google_user_id <> ALL($2::text[])
-              `,
-              [course.id, activeGoogleStudentIds]
-            );
-          }
+        if (activeGoogleIds.length === 0) {
+          await client.query(
+            `
+              DELETE FROM students
+              WHERE course_id = $1
+                AND google_user_id IS NOT NULL
+            `,
+            [course.id]
+          );
+        } else {
+          await client.query(
+            `
+              DELETE FROM students
+              WHERE course_id = $1
+                AND google_user_id IS NOT NULL
+                AND google_user_id <> ALL($2::text[])
+            `,
+            [course.id, activeGoogleIds]
+          );
         }
 
         summary.courses.push({
-          id: course.id!,
-          name: course.name!,
+          id: course.id,
+          name: course.name,
           section: course.section ?? null,
           studentCount: students.length
         });
@@ -717,7 +640,7 @@ export const syncClassroomFromCode = async (
         name: userProfile.name,
         email: userProfile.email ?? null
       },
-      courses: studentsResult.rows.map((row: { id: string; name: string; cohort: string | null; course_id: string }) => ({
+      courses: studentsResult.rows.map((row) => ({
         id: row.course_id,
         name: row.cohort ?? row.course_id,
         section: row.cohort,
