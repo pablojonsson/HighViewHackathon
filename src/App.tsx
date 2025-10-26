@@ -3,11 +3,13 @@ import LoginPage from "./pages/LoginPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
 import StudentDetailPage from "./pages/StudentDetailPage";
 import DataInputPage from "./pages/DataInputPage";
+import LogoutPage from "./pages/LogoutPage";
 
 const App = () => (
   <Routes>
     <Route path="/" element={<Navigate to="/login" replace />} />
     <Route path="/login" element={<div className="centered-page"><LoginPage /></div>} />
+    <Route path="/logout" element={<LogoutPage />} />
     <Route path="/mock" element={<MockLayout />}>
       <Route index element={<LeaderboardPage />} />
       <Route path="leaderboard" element={<LeaderboardPage />} />
@@ -26,6 +28,7 @@ const MockLayout = () => (
         <Link to="/mock/leaderboard">Leaderboard</Link>
         <Link to="/mock/student">Student detail</Link>
         <Link to="/mock/data-entry">Data input</Link>
+        <Link to="/logout">Sign out</Link>
       </nav>
       <Link className="mock-back subtle" to="/login">
         ← Back to login
