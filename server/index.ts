@@ -19,11 +19,51 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-app.get("/api/courses", async (_req, res) => {
+app.get("/api/courses", async (req, res) => {
+  const roleParam = typeof req.query.role === "string" ? req.query.role : null;
+  const userId = typeof req.query.userId === "string" ? req.query.userId : null;
+
   try {
-    const result = await query<{ id: string; name: string }>(
-      "SELECT id, name FROM courses ORDER BY name ASC"
-    );
+    let result;
+
+    if (userId && roleParam === "teacher") {
+      result = await query<{ id: string; name: string }>(
+        `
+          SELECT DISTINCT c.id, c.name
+          FROM courses c
+          JOIN course_teachers ct ON ct.course_id = c.id
+          WHERE ct.user_id = $1
+            AND c.google_course_id IS NOT NULL
+            AND COALESCE(c.course_state, 'ACTIVE') = 'ACTIVE'
+          ORDER BY c.name ASC
+        `,
+        [userId]
+      );
+    } else if (userId && roleParam === "student") {
+      result = await query<{ id: string; name: string }>(
+        `
+          SELECT DISTINCT c.id, c.name
+          FROM courses c
+          JOIN students s ON s.course_id = c.id
+          WHERE s.user_id = $1
+            AND c.google_course_id IS NOT NULL
+            AND COALESCE(c.course_state, 'ACTIVE') = 'ACTIVE'
+          ORDER BY c.name ASC
+        `,
+        [userId]
+      );
+    } else {
+      result = await query<{ id: string; name: string }>(
+        `
+          SELECT id, name
+          FROM courses
+          WHERE google_course_id IS NOT NULL
+            AND COALESCE(course_state, 'ACTIVE') = 'ACTIVE'
+          ORDER BY name ASC
+        `
+      );
+    }
+
     res.json({ courses: result.rows });
   } catch (error) {
     console.error("Failed to load courses", error);
@@ -33,8 +73,31 @@ app.get("/api/courses", async (_req, res) => {
 
 app.get("/api/roster", async (req, res) => {
   const courseId = typeof req.query.courseId === "string" ? req.query.courseId : null;
+  const roleParam = typeof req.query.role === "string" ? req.query.role : null;
+  const userId = typeof req.query.userId === "string" ? req.query.userId : null;
+
+  if (roleParam !== "teacher") {
+    return res.status(403).send("Only teachers can view course rosters");
+  }
 
   try {
+    if (courseId && userId) {
+      const teacherResult = await query<{ exists: boolean }>(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM course_teachers
+            WHERE course_id = $1 AND user_id = $2
+          ) AS exists
+        `,
+        [courseId, userId]
+      );
+
+      if (!teacherResult.rows[0]?.exists) {
+        return res.status(403).send("Not authorized to view this roster");
+      }
+    }
+
     const result = await query<{
       id: string;
       name: string;
@@ -180,11 +243,15 @@ app.post("/api/classroom/sync", async (req, res) => {
   }
 });
 
-app.get("/api/students/:studentId", async (req, res) => {
-  const { studentId } = req.params;
+app.get("/api/students/by-user", async (req, res) => {
+  const userId = typeof req.query.userId === "string" ? req.query.userId : null;
+
+  if (!userId) {
+    return res.status(400).json({ error: "userId is required" });
+  }
 
   try {
-    const studentResult = await query<{
+    const result = await query<{
       id: string;
       name: string;
       cohort: string | null;
@@ -192,6 +259,42 @@ app.get("/api/students/:studentId", async (req, res) => {
     }>(
       `
         SELECT id, name, cohort, course_id
+        FROM students
+        WHERE user_id = $1
+        ORDER BY name ASC
+      `,
+      [userId]
+    );
+
+    res.json({
+      students: result.rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        cohort: row.cohort,
+        courseId: row.course_id
+      }))
+    });
+  } catch (error) {
+    console.error("Failed to load students for user", error);
+    res.status(500).json({ error: "Failed to load students" });
+  }
+});
+
+app.get("/api/students/:studentId", async (req, res) => {
+  const { studentId } = req.params;
+  const roleParam = typeof req.query.role === "string" ? req.query.role : null;
+  const userId = typeof req.query.userId === "string" ? req.query.userId : null;
+
+  try {
+    const studentResult = await query<{
+      id: string;
+      name: string;
+      cohort: string | null;
+      course_id: string;
+      user_id: string | null;
+    }>(
+      `
+        SELECT id, name, cohort, course_id, user_id
         FROM students
         WHERE id = $1
       `,
@@ -202,7 +305,34 @@ app.get("/api/students/:studentId", async (req, res) => {
       return res.status(404).send("Student not found");
     }
 
+    if (!roleParam || !userId) {
+      return res.status(400).json({ error: "role and userId are required" });
+    }
+
     const student = studentResult.rows[0];
+
+    if (roleParam === "student") {
+      if (student.user_id !== userId) {
+        return res.status(403).send("Not authorized to view this summary");
+      }
+    } else if (roleParam === "teacher") {
+      const teacherResult = await query<{ exists: boolean }>(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM course_teachers
+            WHERE course_id = $1 AND user_id = $2
+          ) AS exists
+        `,
+        [student.course_id, userId]
+      );
+
+      if (!teacherResult.rows[0]?.exists) {
+        return res.status(403).send("Not authorized to view this student");
+      }
+    } else {
+      return res.status(403).send("Not authorized");
+    }
 
     const recordsResult = await query<{
       id: string;
@@ -295,8 +425,57 @@ app.get("/api/students/:studentId", async (req, res) => {
 
 app.get("/api/leaderboard", async (req, res) => {
   const courseId = typeof req.query.courseId === "string" ? req.query.courseId : null;
+  const roleParam = typeof req.query.role === "string" ? req.query.role : null;
+  const userId = typeof req.query.userId === "string" ? req.query.userId : null;
 
   try {
+    let allowedCourseIds: string[] | null = null;
+
+    if (roleParam === "teacher" && userId) {
+      const allowed = await query<{ course_id: string }>(
+        `
+          SELECT course_id
+          FROM course_teachers
+          WHERE user_id = $1
+        `,
+        [userId]
+      );
+      allowedCourseIds = allowed.rows.map((row) => row.course_id);
+    } else if (roleParam === "student" && userId) {
+      const allowed = await query<{ course_id: string }>(
+        `
+          SELECT DISTINCT course_id
+          FROM students
+          WHERE user_id = $1
+        `,
+        [userId]
+      );
+      allowedCourseIds = allowed.rows.map((row) => row.course_id);
+    }
+
+    if (allowedCourseIds && allowedCourseIds.length === 0) {
+      return res.json({ leaderboard: [] });
+    }
+
+    if (courseId && allowedCourseIds && !allowedCourseIds.includes(courseId)) {
+      return res.status(403).json({ error: "Not authorized to view this course" });
+    }
+
+    const whereClauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (courseId) {
+      whereClauses.push(`st.course_id = $${params.length + 1}`);
+      params.push(courseId);
+    }
+
+    if (allowedCourseIds) {
+      whereClauses.push(`st.course_id = ANY($${params.length + 1}::text[])`);
+      params.push(allowedCourseIds);
+    }
+
+    const whereSql = whereClauses.length > 0 ? whereClauses.join(" AND ") : "TRUE";
+
     const result = await query<{
       student_id: string;
       name: string;
@@ -321,11 +500,11 @@ app.get("/api/leaderboard", async (req, res) => {
         LEFT JOIN attendance_records ar ON ar.student_id = st.id
         LEFT JOIN sessions s ON s.id = ar.session_id
         LEFT JOIN bonus_events be ON be.attendance_record_id = ar.id
-        WHERE ($1::text IS NULL OR st.course_id = $1)
+        WHERE ${whereSql}
         GROUP BY st.id
         ORDER BY avg_participation DESC, attendance_rate DESC, st.name ASC
       `,
-      [courseId]
+      params
     );
 
     const leaderboard = result.rows.map((row) => ({
