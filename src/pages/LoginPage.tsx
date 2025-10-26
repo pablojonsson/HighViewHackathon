@@ -186,19 +186,25 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="card stack" style={{ maxWidth: "520px" }}>
-      <h2>Welcome back</h2>
-      <p className="subtle">
-        Sign in with your school Google account to view attendance diagnostics.
-      </p>
-      <button
-        className="primary-btn"
-        onClick={handleGoogleLogin}
-        disabled={!isReady || isProcessing}
-      >
-        {isProcessing ? "Syncing Google Classroom..." : "Continue with Google"}
-      </button>
-      <p className="subtle">Need access? Contact your program admin.</p>
+    <div className="login-root">
+      <div className="login-backdrop">
+        <span className="pulse-shape pulse-1" />
+        <span className="pulse-shape pulse-2" />
+        <span className="pulse-shape pulse-3" />
+        <div className="login-card">
+          <h1 className="login-title">pulseboard</h1>
+          <p className="login-subtitle"> Track every heartbeat of engagement.</p>
+          <button
+            className="google-btn"
+            onClick={handleGoogleLogin}
+            disabled={!isReady || isProcessing}
+          >
+            <span className="google-icon" aria-hidden="true" />
+            {isProcessing ? "Syncing Google Classroom…" : "Sign in with Google"}
+          </button>
+          <p className="login-helper">Use your school Google account</p>
+        </div>
+      </div>
     </div>
   );
 };
