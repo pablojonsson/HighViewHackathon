@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const SESSION_KEYS_TO_CLEAR = [
   "hvAuthToken",
   "hvRefreshToken",
   "hvUserProfile",
   "hvSelectedClassId",
+  "highview-auth-user"
 ];
 
 const pageStyle: React.CSSProperties = {
@@ -75,13 +77,15 @@ const CountdownText: React.FC<{ seconds: number }> = ({ seconds }) => (
 export default function LogoutPage() {
   const navigate = useNavigate();
   const [seconds, setSeconds] = useState<number>(5);
+  const { logout } = useAuth();
 
   useEffect(() => {
     SESSION_KEYS_TO_CLEAR.forEach((key) => {
       localStorage.removeItem(key);
       sessionStorage.removeItem(key);
     });
-  }, []);
+    logout();
+  }, [logout]);
 
   useEffect(() => {
     if (seconds <= 0) {
