@@ -65,6 +65,7 @@ const StudentDetailPage = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
+
   const isTeacher = user?.role === "teacher";
   const isStudent = user?.role === "student";
 
@@ -74,9 +75,9 @@ const StudentDetailPage = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [coursesError, setCoursesError] = useState<string | null>(null);
   const [roster, setRoster] = useState<Student[]>([]);
-  const [myStudents, setMyStudents] = useState<Student[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState<string | null>(null);
+  const [myStudents, setMyStudents] = useState<Student[]>([]);
   const [studentData, setStudentData] = useState<StudentDetailResponse | null>(null);
   const [studentLoading, setStudentLoading] = useState(false);
   const [studentError, setStudentError] = useState<string | null>(null);
@@ -85,16 +86,19 @@ const StudentDetailPage = () => {
   const [selectedStudentId, setSelectedStudentId] = useState<string>(() => studentParam ?? "");
 
   useEffect(() => {
+    if (!user) {
+      setCourses([]);
+      return;
+    }
+
     const loadCourses = async () => {
       try {
         setCoursesError(null);
-        const params = new URLSearchParams();
-        if (user) {
-          params.set("role", user.role);
-          params.set("userId", user.id);
-        }
-        const query = params.toString();
-        const response = await fetch(`/api/courses${query ? `?${query}` : ""}`);
+        const params = new URLSearchParams({
+          role: user.role,
+          userId: user.id
+        });
+        const response = await fetch(`/api/courses?${params.toString()}`);
         if (!response.ok) {
           throw new Error("Failed to load courses");
         }
@@ -116,24 +120,24 @@ const StudentDetailPage = () => {
     };
 
     loadCourses();
-  }, [user, courseParam, selectedCourseId, setSearchParams]);
+  }, [user]);
 
   useEffect(() => {
     const loadMyStudents = async () => {
       if (!user || !isStudent) {
+        setMyStudents([]);
         return;
       }
 
       try {
         const response = await fetch(`/api/students/by-user?userId=${encodeURIComponent(user.id)}`);
         if (!response.ok) {
-          throw new Error("Failed to load student records");
+          throw new Error("Failed to load students");
         }
-
         const data = (await response.json()) as { students: Student[] };
         setMyStudents(data.students);
       } catch (error) {
-        console.error("Failed to load student records", error);
+        console.error("Failed to load students for user", error);
         setMyStudents([]);
       }
     };
@@ -143,11 +147,7 @@ const StudentDetailPage = () => {
 
   useEffect(() => {
     const loadRoster = async () => {
-      if (!isTeacher) {
-        return;
-      }
-
-      if (!selectedCourseId) {
+      if (!isTeacher || !selectedCourseId || !user) {
         setRoster([]);
         return;
       }
@@ -156,12 +156,10 @@ const StudentDetailPage = () => {
         setRosterLoading(true);
         setRosterError(null);
         const params = new URLSearchParams({
-          courseId: selectedCourseId
+          courseId: selectedCourseId,
+          role: user.role,
+          userId: user.id
         });
-        if (user) {
-          params.set("role", user.role);
-          params.set("userId", user.id);
-        }
         const response = await fetch(`/api/roster?${params.toString()}`);
         if (!response.ok) {
           throw new Error("Failed to load roster");
@@ -195,7 +193,7 @@ const StudentDetailPage = () => {
     };
 
     loadRoster();
-  }, [isTeacher, selectedCourseId, studentParam, setSearchParams, user]);
+  }, [isTeacher, selectedCourseId, studentParam, user]);
 
   useEffect(() => {
     if (!isStudent) {
@@ -215,10 +213,11 @@ const StudentDetailPage = () => {
     }
 
     if (!selectedCourseId) {
-      setSelectedCourseId(matching[0].courseId);
+      const initialCourseId = matching[0].courseId;
+      setSelectedCourseId(initialCourseId);
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
-        next.set("courseId", matching[0].courseId);
+        next.set("courseId", initialCourseId);
         return next;
       });
     }
@@ -235,8 +234,8 @@ const StudentDetailPage = () => {
   }, [isStudent, myStudents, selectedCourseId, selectedStudentId, setSearchParams]);
 
   useEffect(() => {
-    const fetchStudent = async () => {
-      if (!selectedStudentId || !user) {
+    const loadStudent = async () => {
+      if (!user || !selectedStudentId) {
         setStudentData(null);
         return;
       }
@@ -265,8 +264,8 @@ const StudentDetailPage = () => {
       }
     };
 
-    fetchStudent();
-  }, [selectedStudentId, user]);
+    loadStudent();
+  }, [user, selectedStudentId]);
 
   const summary = useMemo(() => {
     if (!studentData) {
@@ -281,8 +280,8 @@ const StudentDetailPage = () => {
       attendanceRate < 70
         ? "high"
         : attendanceRate < 85
-          ? "medium"
-          : "low";
+        ? "medium"
+        : "low";
 
     return {
       totalSessions,
@@ -320,9 +319,11 @@ const StudentDetailPage = () => {
       <div className="card stack">
         <header className="flex-between">
           <div>
-            <h2>Student diagnostics</h2>
+            <h2>{isStudent ? "My summary" : "Student diagnostics"}</h2>
             <p className="subtle">
-              Drill into attendance trends, participation, and support needs for a single learner.
+              {isStudent
+                ? "Review your attendance and participation trend."
+                : "Drill into attendance trends, participation, and support needs for a single learner."}
             </p>
           </div>
           <button className="secondary-btn" type="button" onClick={handleBack}>
@@ -400,15 +401,15 @@ const StudentDetailPage = () => {
                   summary?.riskLevel === "high"
                     ? "tag danger"
                     : summary?.riskLevel === "medium"
-                      ? "tag warning"
-                      : "tag success"
+                    ? "tag warning"
+                    : "tag success"
                 }
               >
                 {summary?.riskLevel === "high"
                   ? "High risk"
                   : summary?.riskLevel === "medium"
-                    ? "Watch closely"
-                    : "Healthy"}
+                  ? "Watch closely"
+                  : "Healthy"}
               </span>
             </div>
             <div className="stat-card">
@@ -433,7 +434,7 @@ const StudentDetailPage = () => {
               <div>
                 <h3>{studentData.student.name}</h3>
                 <p className="subtle">
-                  {studentData.student.cohort ?? "No cohort"} · Course {studentData.student.courseId}
+                  {studentData.student.cohort ?? "No cohort"} - Course {studentData.student.courseId}
                 </p>
               </div>
             </header>
@@ -443,8 +444,8 @@ const StudentDetailPage = () => {
                 {summary?.riskLevel === "high"
                   ? "high risk"
                   : summary?.riskLevel === "medium"
-                    ? "medium risk"
-                    : "healthy"}
+                  ? "medium risk"
+                  : "healthy"}
               </strong>{" "}
               attendance should receive targeted support.
             </div>
@@ -473,8 +474,8 @@ const StudentDetailPage = () => {
                       : "-";
                     const bonus = session.bonus.length
                       ? session.bonus
-                        .map((item) => `${bonusLabels[item.code]} (+${item.points})`)
-                        .join(", ")
+                          .map((item) => `${bonusLabels[item.code]} (+${item.points})`)
+                          .join(", ")
                       : "-";
                     return (
                       <tr key={session.id}>
