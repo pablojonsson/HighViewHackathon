@@ -3,7 +3,13 @@ import express, { Request, Response } from "express";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 // @ts-ignore
 import cors from "cors";
-import { query, withTransaction, PoolClient } from "./db";
+import {
+  attendancePoints,
+  bonusPointMap,
+  query,
+  withTransaction,
+  type PoolClient
+} from "./db";
 import { refreshTeacherCourseRoster, syncClassroomFromCode } from "./services/googleClassroom";
 
 const app = express();
@@ -140,13 +146,11 @@ app.post("/api/sessions", async (req: Request, res: Response) => {
     sessionName?: string;
     courseId?: string;
     occurredAt?: string;
-    entries?: Array<{
-      studentId: string;
-      status: string;
-      participation: number;
-      bonus?: string[];
-      notes?: string;
-    }>;
+  entries?: Array<{
+    studentId: string;
+    status: string;
+    bonus?: string[];
+  }>;
   };
 
   if (!payload.sessionName || typeof payload.sessionName !== "string") {
@@ -187,10 +191,8 @@ app.post("/api/sessions", async (req: Request, res: Response) => {
           throw new Error(`Invalid attendance status for student ${entry.studentId}`);
         }
 
-        const participation =
-          typeof entry.participation === "number" && entry.participation >= 0
-            ? Math.min(Math.round(entry.participation), 5)
-            : 0;
+        const attendanceValue =
+          attendancePoints[entry.status as AttendanceStatus] ?? attendancePoints.absent;
 
         const recordResult = await client.query<{ id: string }>(
           `
@@ -202,8 +204,8 @@ app.post("/api/sessions", async (req: Request, res: Response) => {
             insertedSessionId,
             entry.studentId,
             entry.status,
-            participation,
-            entry.notes ?? ""
+            attendanceValue,
+            ""
           ]
         );
 
@@ -211,7 +213,7 @@ app.post("/api/sessions", async (req: Request, res: Response) => {
 
         if (Array.isArray(entry.bonus)) {
           for (const bonusCode of entry.bonus) {
-            const points = bonusPointMap[bonusCode as BonusCode];
+            const points = bonusPointMap[bonusCode] ?? 0;
             if (!points) {
               continue;
             }
@@ -398,11 +400,14 @@ app.get("/api/students/:studentId", async (req, res) => {
     const totalSessions = recordsResult.rowCount;
     const presentSessions = recordsResult.rows.filter((record: { status: AttendanceStatus }) => record.status === "present").length;
     const attendanceRate = totalSessions > 0 ? Math.round((presentSessions / totalSessions) * 100) : 0;
-    const averageParticipation =
+    const averageAttendancePoints =
       totalSessions > 0
-        ? (recordsResult.rows.reduce((sum: number, record: { participation: number }) => sum + record.participation, 0) /
-          totalSessions
-        ).toFixed(1)
+        ? (
+            recordsResult.rows.reduce(
+              (sum: number, record: { participation: number }) => sum + record.participation,
+              0
+            ) / totalSessions
+          ).toFixed(1)
         : "0.0";
     const bonusPoints = bonusResult.rows.reduce((sum: number, row: { points: number }) => sum + row.points, 0);
 
@@ -416,7 +421,7 @@ app.get("/api/students/:studentId", async (req, res) => {
       stats: {
         totalSessions,
         attendanceRate,
-        averageParticipation,
+        averageAttendancePoints,
         bonusPoints
       },
       recentSessions: recordsResult.rows.map((record: {
@@ -510,7 +515,7 @@ app.get("/api/leaderboard", async (req, res) => {
       course_id: string;
       total_sessions: number;
       attendance_rate: number;
-      avg_participation: number;
+      avg_attendance_points: number;
       bonus_points: number;
       session_names: Array<string | null>;
     }>(
@@ -522,7 +527,7 @@ app.get("/api/leaderboard", async (req, res) => {
           st.course_id,
           COUNT(DISTINCT s.id) AS total_sessions,
           COALESCE(AVG(CASE WHEN ar.status = 'present' THEN 1 ELSE 0 END)::float * 100, 0) AS attendance_rate,
-          COALESCE(AVG(ar.participation)::float, 0) AS avg_participation,
+          COALESCE(AVG(ar.participation)::float, 0) AS avg_attendance_points,
           COALESCE(SUM(be.points)::float, 0) AS bonus_points,
           ARRAY_REMOVE(ARRAY_REMOVE(ARRAY_AGG(DISTINCT TRIM(s.name)), ''), NULL) AS session_names
         FROM students st
@@ -531,7 +536,7 @@ app.get("/api/leaderboard", async (req, res) => {
         LEFT JOIN bonus_events be ON be.attendance_record_id = ar.id
         WHERE ${whereSql}
         GROUP BY st.id
-        ORDER BY avg_participation DESC, attendance_rate DESC, st.name ASC
+        ORDER BY avg_attendance_points DESC, attendance_rate DESC, st.name ASC
       `,
       params
     );
@@ -543,7 +548,7 @@ app.get("/api/leaderboard", async (req, res) => {
       course_id: string;
       total_sessions: number;
       attendance_rate: number;
-      avg_participation: number;
+      avg_attendance_points: number;
       bonus_points: number;
       session_names: Array<string | null>;
     }) => ({
@@ -552,7 +557,7 @@ app.get("/api/leaderboard", async (req, res) => {
       cohort: row.cohort,
       courseId: row.course_id,
       attendanceRate: Math.round(row.attendance_rate),
-      participationScore: Number(row.avg_participation.toFixed(1)),
+      attendancePointsAvg: Number(row.avg_attendance_points.toFixed(1)),
       bonusPoints: Number(row.bonus_points),
       sessionNames: row.session_names.filter(
         (sessionName): sessionName is string =>
@@ -578,10 +583,3 @@ app.listen(PORT, () => {
 });
 
 type AttendanceStatus = "present" | "late" | "excused" | "absent";
-type BonusCode = "lead" | "mentor" | "project";
-
-const bonusPointMap: Record<BonusCode, number> = {
-  lead: 2,
-  mentor: 1,
-  project: 3
-};

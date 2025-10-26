@@ -13,7 +13,7 @@ type LeaderboardEntry = {
   cohort: string | null;
   courseId: string;
   attendanceRate: number;
-  participationScore: number;
+  attendancePointsAvg: number;
   bonusPoints: number;
   sessionNames: string[];
   riskLevel: "low" | "medium" | "high";
@@ -219,8 +219,8 @@ const LeaderboardPage = () => {
     const averageAttendance = Math.round(
       filteredEntries.reduce((sum, entry) => sum + entry.attendanceRate, 0) / totalStudents
     );
-    const averageParticipation = (
-      filteredEntries.reduce((sum, entry) => sum + entry.participationScore, 0) / totalStudents
+    const averageAttendancePoints = (
+      filteredEntries.reduce((sum, entry) => sum + entry.attendancePointsAvg, 0) / totalStudents
     ).toFixed(1);
     const bonusPoints = filteredEntries.reduce((sum, entry) => sum + entry.bonusPoints, 0);
 
@@ -228,7 +228,7 @@ const LeaderboardPage = () => {
       totalStudents,
       highRisk,
       averageAttendance,
-      averageParticipation,
+      averageAttendancePoints,
       bonusPoints
     };
   }, [filteredEntries]);
@@ -336,7 +336,9 @@ const LeaderboardPage = () => {
             <span className="tag success">Avg attendance {summary.averageAttendance}%</span>
             {role === "teacher" && (
               <>
-                <span className="tag neutral">Avg participation {summary.averageParticipation}</span>
+                <span className="tag neutral">
+                  Avg attendance pts {summary.averageAttendancePoints}
+                </span>
                 <span className="tag bonus">Bonus total {summary.bonusPoints}</span>
                 {summary.highRisk > 0 && (
                   <span className="tag danger">{summary.highRisk} high risk</span>
@@ -366,7 +368,6 @@ const LeaderboardPage = () => {
                 <th>#</th>
                 <th>Student</th>
                 <th>Attendance</th>
-                <th>Participation</th>
                 <th>Bonus</th>
                 {showRiskColumn && <th>Risk</th>}
               </tr>
@@ -390,7 +391,6 @@ const LeaderboardPage = () => {
                       </div>
                     </td>
                     <td>{entry.attendanceRate}%</td>
-                    <td>{entry.participationScore.toFixed(1)}</td>
                     <td>{entry.bonusPoints}</td>
                     {showRiskColumn && (
                       <td>
@@ -398,8 +398,8 @@ const LeaderboardPage = () => {
                           {entry.riskLevel === "high"
                             ? "High"
                             : entry.riskLevel === "medium"
-                            ? "Medium"
-                            : "Low"}
+                              ? "Medium"
+                              : "Low"}
                         </span>
                       </td>
                     )}

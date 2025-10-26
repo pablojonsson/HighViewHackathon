@@ -15,7 +15,6 @@ type Student = {
 };
 
 type AttendanceStatus = "present" | "late" | "excused" | "absent";
-type BonusCode = "lead" | "mentor" | "project";
 
 type StudentDetailResponse = {
   student: {
@@ -27,17 +26,16 @@ type StudentDetailResponse = {
   stats: {
     totalSessions: number;
     attendanceRate: number;
-    averageParticipation: string;
+    averageAttendancePoints: string;
     bonusPoints: number;
   };
   recentSessions: Array<{
     id: string;
     status: AttendanceStatus;
-    participation: number;
     notes: string;
     occurredAt: string;
     sessionName: string;
-    bonus: Array<{ code: BonusCode; points: number }>;
+    bonus: Array<{ code: string; points: number }>;
   }>;
 };
 
@@ -55,10 +53,11 @@ const statusLabel: Record<AttendanceStatus, string> = {
   absent: "Absent"
 };
 
-const bonusLabels: Record<BonusCode, string> = {
-  lead: "Led discussion",
-  mentor: "Peer mentor",
-  project: "Project milestone"
+const bonusLabels: Record<string, string> = {
+  participation: "Participation",
+  thank_you: "Thank you notes",
+  video_content: "Video content",
+  additional_event: "Additional event"
 };
 
 const StudentDetailPage = () => {
@@ -119,7 +118,7 @@ const StudentDetailPage = () => {
     };
 
     loadCourses();
-  }, [user]);
+  }, [user, courseParam, selectedCourseId, setSearchParams]);
 
   useEffect(() => {
     const loadMyStudents = async () => {
@@ -192,7 +191,7 @@ const StudentDetailPage = () => {
     };
 
     loadRoster();
-  }, [isTeacher, selectedCourseId, studentParam, user]);
+  }, [isTeacher, selectedCourseId, studentParam, user, setSearchParams]);
 
   useEffect(() => {
     if (!isStudent) {
@@ -233,7 +232,7 @@ const StudentDetailPage = () => {
   }, [isStudent, myStudents, selectedCourseId, selectedStudentId, setSearchParams]);
 
   useEffect(() => {
-    const loadStudent = async () => {
+    const loadStudentDetail = async () => {
       if (!user || !selectedStudentId) {
         setStudentData(null);
         return;
@@ -263,7 +262,7 @@ const StudentDetailPage = () => {
       }
     };
 
-    loadStudent();
+    loadStudentDetail();
   }, [user, selectedStudentId]);
 
   const summary = useMemo(() => {
@@ -274,7 +273,6 @@ const StudentDetailPage = () => {
     const totalSessions = studentData.stats.totalSessions ?? 0;
     const attendanceRate = studentData.stats.attendanceRate ?? 0;
     const bonusPoints = studentData.stats.bonusPoints ?? 0;
-    const participationScore = Number(studentData.stats.averageParticipation ?? 0);
     const riskLevel =
       attendanceRate < 70
         ? "high"
@@ -286,7 +284,6 @@ const StudentDetailPage = () => {
       totalSessions,
       attendanceRate,
       bonusPoints,
-      participationScore,
       riskLevel
     };
   }, [studentData]);
@@ -405,11 +402,6 @@ const StudentDetailPage = () => {
               </span>
             </div>
             <div className="stat-card">
-              <p className="subtle">Participation avg</p>
-              <h3>{summary ? summary.participationScore.toFixed(1) : "0.0"}</h3>
-              <span className="tag neutral">Scale 0-5</span>
-            </div>
-            <div className="stat-card">
               <p className="subtle">Sessions logged</p>
               <h3>{summary?.totalSessions ?? 0}</h3>
             </div>
@@ -431,7 +423,6 @@ const StudentDetailPage = () => {
                     <th>Date</th>
                     <th>Session</th>
                     <th>Status</th>
-                    <th>Participation</th>
                     <th>Bonus</th>
                     <th>Notes</th>
                   </tr>
@@ -455,7 +446,6 @@ const StudentDetailPage = () => {
                             {statusLabel[session.status]}
                           </span>
                         </td>
-                        <td>{session.participation}</td>
                         <td>{bonus}</td>
                         <td>{session.notes || "-"}</td>
                       </tr>

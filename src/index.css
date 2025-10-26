@@ -500,6 +500,11 @@ select {
   box-shadow: 0 10px 20px -12px rgba(31, 60, 136, 0.6);
 }
 
+.attendance-points {
+  font-weight: 600;
+  color: #1f3c88;
+}
+
 .card-grid {
   display: grid;
   gap: 1.5rem;

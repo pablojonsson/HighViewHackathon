@@ -3,57 +3,66 @@ import { useAuth } from "../context/AuthContext";
 
 type AttendanceStatus = "present" | "late" | "excused" | "absent";
 
-interface Course {
+type Course = {
   id: string;
   name: string;
-}
+};
 
-interface Student {
+type Student = {
   id: string;
   name: string;
   cohort: string | null;
   courseId: string;
-}
+};
 
-interface StudentEntry {
+type StudentEntry = {
   status: AttendanceStatus;
-  participation: number;
   bonus: string[];
-  notes: string;
-}
+};
 
-interface RosterResponse {
+type RosterResponse = {
   roster: Student[];
-}
+};
 
-interface CoursesResponse {
+type CoursesResponse = {
   courses: Course[];
-}
+};
 
-interface SaveSessionPayload {
+type SaveSessionPayload = {
   sessionName: string;
   courseId: string;
   occurredAt?: string;
-  entries: Array<StudentEntry & { studentId: string }>;
-}
+  entries: Array<{
+    studentId: string;
+    status: AttendanceStatus;
+    bonus?: string[];
+  }>;
+};
+
+const attendancePoints: Record<AttendanceStatus, number> = {
+  present: 5,
+  late: 3.5,
+  excused: 2.5,
+  absent: 0
+};
 
 const bonusOptions = [
-  { key: "lead", label: "Led discussion (+2)" },
-  { key: "mentor", label: "Peer mentor (+1)" },
-  { key: "project", label: "Project milestone (+3)" }
+  { key: "participation", label: "Participation (+1)" },
+  { key: "thank_you", label: "Thank you notes (+1)" },
+  { key: "video_content", label: "Video content (+1)" },
+  { key: "additional_event", label: "Additional event (+1)" }
 ] as const;
 
 const bonusPointMap: Record<(typeof bonusOptions)[number]["key"], number> = {
-  lead: 2,
-  mentor: 1,
-  project: 3
+  participation: 1,
+  thank_you: 1,
+  video_content: 1,
+  additional_event: 1
 };
 
 const createDefaultEntry = (): StudentEntry => ({
   status: "present",
-  participation: 3,
-  bonus: [],
-  notes: ""
+  bonus: []
 });
 
 const DataInputPage = () => {
@@ -99,7 +108,7 @@ const DataInputPage = () => {
     };
 
     loadCourses();
-  }, [user]);
+  }, [user, isTeacher, selectedCourseId]);
 
   useEffect(() => {
     const loadRoster = async () => {
@@ -130,7 +139,7 @@ const DataInputPage = () => {
     };
 
     loadRoster();
-  }, [selectedCourseId, user]);
+  }, [selectedCourseId, user, isTeacher]);
 
   useEffect(() => {
     setEntries((prev) => {
@@ -142,12 +151,12 @@ const DataInputPage = () => {
     });
   }, [roster]);
 
-  const updateEntry = (studentId: string, field: keyof StudentEntry, value: unknown) => {
+  const updateStatus = (studentId: string, status: AttendanceStatus) => {
     setEntries((prev) => ({
       ...prev,
       [studentId]: {
         ...(prev[studentId] ?? createDefaultEntry()),
-        [field]: value
+        status
       }
     }));
   };
@@ -169,14 +178,14 @@ const DataInputPage = () => {
   };
 
   const summary = useMemo(() => {
-    const counts = {
+    const counts: Record<AttendanceStatus, number> = {
       present: 0,
       late: 0,
       excused: 0,
-      absent: 0,
-      totalParticipation: 0,
-      bonusPoints: 0
+      absent: 0
     };
+    let totalAttendancePoints = 0;
+    let totalBonusPoints = 0;
 
     roster.forEach((student) => {
       const entry = entries[student.id];
@@ -184,18 +193,21 @@ const DataInputPage = () => {
         return;
       }
 
-      const statusKey = entry.status as keyof typeof counts;
-      counts[statusKey] += 1;
-      counts.totalParticipation += entry.participation;
-      entry.bonus.forEach((bonusKey) => {
-        counts.bonusPoints += bonusPointMap[bonusKey as keyof typeof bonusPointMap] ?? 0;
-      });
+      counts[entry.status] += 1;
+      totalAttendancePoints += attendancePoints[entry.status];
+      totalBonusPoints += entry.bonus.reduce((sum, key) => sum + (bonusPointMap[key as keyof typeof bonusPointMap] ?? 0), 0);
     });
 
+    const averageAttendancePoints =
+      roster.length > 0 ? (totalAttendancePoints / roster.length).toFixed(1) : "0.0";
+
     return {
-      ...counts,
-      avgParticipation:
-        roster.length > 0 ? (counts.totalParticipation / roster.length).toFixed(1) : "0.0"
+      present: counts.present,
+      late: counts.late,
+      excused: counts.excused,
+      absent: counts.absent,
+      averageAttendancePoints,
+      bonusPoints: totalBonusPoints
     };
   }, [entries, roster]);
 
@@ -221,10 +233,14 @@ const DataInputPage = () => {
     const payload: SaveSessionPayload = {
       sessionName: sessionName.trim(),
       courseId: selectedCourseId,
-      entries: roster.map((student) => ({
-        studentId: student.id,
-        ...(entries[student.id] ?? createDefaultEntry())
-      }))
+      entries: roster.map((student) => {
+        const entry = entries[student.id] ?? createDefaultEntry();
+        return {
+          studentId: student.id,
+          status: entry.status,
+          bonus: entry.bonus
+        };
+      })
     };
 
     try {
@@ -256,8 +272,8 @@ const DataInputPage = () => {
       <div className="card stack">
         <h2>Session log</h2>
         <p className="subtle">
-          Track attendance, participation, and bonus actions for today&apos;s session. Data now
-          persists via the Node/Express + PostgreSQL backend.
+          Track attendance and bonus actions for today&apos;s session. Data now persists via the
+          Node/Express + PostgreSQL backend.
         </p>
 
         {coursesError ? (
@@ -304,7 +320,7 @@ const DataInputPage = () => {
             <span className="tag info">Excused {summary.excused}</span>
             <span className="tag danger">Absent {summary.absent}</span>
             <span className="tag neutral">
-              Avg participation {summary.avgParticipation}
+              Avg attendance pts {summary.averageAttendancePoints}
             </span>
             <span className="tag bonus">Bonus pts {summary.bonusPoints}</span>
           </div>
@@ -322,9 +338,8 @@ const DataInputPage = () => {
               <tr>
                 <th>Student</th>
                 <th>Status</th>
-                <th>Participation</th>
+                <th>Attendance pts</th>
                 <th>Bonus actions</th>
-                <th>Notes</th>
               </tr>
             </thead>
             <tbody>
@@ -341,7 +356,7 @@ const DataInputPage = () => {
                       <select
                         value={entry.status}
                         onChange={(event) =>
-                          updateEntry(student.id, "status", event.target.value as AttendanceStatus)
+                          updateStatus(student.id, event.target.value as AttendanceStatus)
                         }
                       >
                         <option value="present">Present</option>
@@ -351,19 +366,9 @@ const DataInputPage = () => {
                       </select>
                     </td>
                     <td>
-                      <div className="participation-cell">
-                        <input
-                          type="range"
-                          min={0}
-                          max={5}
-                          step={1}
-                          value={entry.participation}
-                          onChange={(event) =>
-                            updateEntry(student.id, "participation", Number(event.target.value))
-                          }
-                        />
-                        <span>{entry.participation}</span>
-                      </div>
+                      <span className="attendance-points">
+                        {attendancePoints[entry.status]} pts
+                      </span>
                     </td>
                     <td>
                       <div className="bonus-chip-group">
@@ -380,14 +385,6 @@ const DataInputPage = () => {
                           </button>
                         ))}
                       </div>
-                    </td>
-                    <td>
-                      <input
-                        className="note-input"
-                        placeholder="Optional quick note"
-                        value={entry.notes}
-                        onChange={(event) => updateEntry(student.id, "notes", event.target.value)}
-                      />
                     </td>
                   </tr>
                 );
