@@ -4,7 +4,7 @@ import express, { Request, Response } from "express";
 // @ts-ignore
 import cors from "cors";
 import { query, withTransaction, PoolClient } from "./db";
-import { syncClassroomFromCode } from "./services/googleClassroom";
+import { refreshTeacherCourseRoster, syncClassroomFromCode } from "./services/googleClassroom";
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
@@ -97,6 +97,12 @@ app.get("/api/roster", async (req, res) => {
 
       if (!teacherResult.rows[0]?.exists) {
         return res.status(403).send("Not authorized to view this roster");
+      }
+
+      try {
+        await refreshTeacherCourseRoster({ userId, courseId });
+      } catch (error) {
+        console.error("Failed to refresh roster before response", error);
       }
     }
 
@@ -369,17 +375,17 @@ app.get("/api/students/:studentId", async (req, res) => {
     const bonusResult =
       recordIds.length > 0
         ? await query<{
-            attendance_record_id: string;
-            code: string;
-            points: number;
-          }>(
-            `
+          attendance_record_id: string;
+          code: string;
+          points: number;
+        }>(
+          `
               SELECT attendance_record_id, code, points
               FROM bonus_events
               WHERE attendance_record_id = ANY($1::uuid[])
             `,
-            [recordIds]
-          )
+          [recordIds]
+        )
         : { rows: [] };
 
     const bonusByRecord = new Map<string, Array<{ code: string; points: number }>>();
@@ -395,8 +401,8 @@ app.get("/api/students/:studentId", async (req, res) => {
     const averageParticipation =
       totalSessions > 0
         ? (recordsResult.rows.reduce((sum: number, record: { participation: number }) => sum + record.participation, 0) /
-            totalSessions
-          ).toFixed(1)
+          totalSessions
+        ).toFixed(1)
         : "0.0";
     const bonusPoints = bonusResult.rows.reduce((sum: number, row: { points: number }) => sum + row.points, 0);
 
@@ -541,8 +547,8 @@ app.get("/api/leaderboard", async (req, res) => {
         row.attendance_rate < 0.7 * 100
           ? "high"
           : row.attendance_rate < 0.85 * 100
-          ? "medium"
-          : "low"
+            ? "medium"
+            : "low"
     }));
 
     res.json({ leaderboard });

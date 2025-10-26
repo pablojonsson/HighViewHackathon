@@ -1,7 +1,44 @@
+pablooo
+pablo421
+Online
+
+pablooo — 9: 18 PM
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+
+type Course = {
+  id: string;
+  Expand
+message.txt
+17 KB
 import { google, classroom_v1 } from "googleapis";
 import type { Credentials, OAuth2Client } from "google-auth-library";
-import { PoolClient } from "../db";
-import { withTransaction } from "../db";
+import { PoolClient, query, withTransaction } from "../db";
+
+type CodeExchangeRequest = {
+  code: string;
+  Expand
+message.txt
+20 KB
+import "dotenv/config";
+import express, { Request, Response } from "express";
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+// @ts-ignore
+import cors from "cors";
+import { query, withTransaction, PoolClient } from "./db";
+Expand
+message.txt
+18 KB
+
+Proplayz131
+proplayz131
+
+
+https://www.youtube.com/watch?v=pRJNfgPO188
+import { google, classroom_v1 } from "googleapis";
+import type { Credentials, OAuth2Client } from "google-auth-library";
+import { PoolClient, query, withTransaction } from "../db";
 
 type CodeExchangeRequest = {
   code: string;
@@ -37,23 +74,23 @@ type StudentSyncSummary = {
 
 type SyncResult =
   | {
-      user: {
-        id: string;
-        name: string;
-        email?: string | null;
-        role: "teacher";
-      };
-      summary: TeacherSyncSummary;
-    }
-  | {
-      user: {
-        id: string;
-        name: string;
-        email?: string | null;
-        role: "student";
-      };
-      summary: StudentSyncSummary;
+    user: {
+      id: string;
+      name: string;
+      email?: string | null;
+      role: "teacher";
     };
+    summary: TeacherSyncSummary;
+  }
+  | {
+    user: {
+      id: string;
+      name: string;
+      email?: string | null;
+      role: "student";
+    };
+    summary: StudentSyncSummary;
+  };
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? process.env.VITE_GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET =
@@ -262,8 +299,8 @@ const storeUserTokens = async (
     typeof tokens.scope === "string"
       ? tokens.scope
       : Array.isArray(tokens.scope)
-      ? (tokens.scope as string[]).join(" ")
-      : classroomScopes.join(" ");
+        ? (tokens.scope as string[]).join(" ")
+        : classroomScopes.join(" ");
 
   await client.query(
     `
@@ -346,6 +383,147 @@ const toProfile = (person: classroom_v1.Schema$UserProfile | undefined | null): 
   };
 };
 
+export const refreshTeacherCourseRoster = async ({
+  userId,
+  courseId
+}: {
+  userId: string;
+  courseId: string;
+}): Promise<void> => {
+  const tokenResult = await query<{
+    access_token: string;
+    refresh_token: string | null;
+    scope: string | null;
+    token_type: string | null;
+    expiry_date: Date | null;
+  }>(
+    `
+      SELECT access_token, refresh_token, scope, token_type, expiry_date
+      FROM user_tokens
+      WHERE user_id = $1
+    `,
+    [userId]
+  );
+
+  if (tokenResult.rowCount === 0) {
+    return;
+  }
+
+  const teacherResult = await query<{ google_user_id: string | null }>(
+    `
+      SELECT google_user_id
+      FROM users
+      WHERE id = $1
+    `,
+    [userId]
+  );
+
+  const teacherRow = teacherResult.rows[0];
+  if (!teacherRow?.google_user_id) {
+    return;
+  }
+
+  const storedTokens = tokenResult.rows[0];
+  const oauthClient = getOAuthClient();
+  const credentials: Credentials = {
+    access_token: storedTokens.access_token,
+    refresh_token: storedTokens.refresh_token ?? undefined,
+    scope: storedTokens.scope ?? undefined,
+    token_type: storedTokens.token_type ?? undefined,
+    expiry_date: storedTokens.expiry_date
+      ? new Date(storedTokens.expiry_date).getTime()
+      : undefined
+  };
+
+  oauthClient.setCredentials(credentials);
+
+  try {
+    await oauthClient.getAccessToken();
+  } catch (error) {
+    console.error("Failed to refresh Google token for roster sync", error);
+    return;
+  }
+
+  try {
+    const [courseResponse, teachers, students] = await Promise.all([
+      classroom.courses.get({
+        auth: oauthClient,
+        id: courseId
+      }),
+      loadCourseTeachers(oauthClient, courseId),
+      loadCourseStudents(oauthClient, courseId)
+    ]);
+
+    const course = courseResponse.data;
+    if (!course.id || !course.name) {
+      return;
+    }
+
+    const teacherProfile = await fetchUserProfile(oauthClient);
+
+    await withTransaction(async (client) => {
+      const teacherUser = await upsertUser(client, teacherProfile, "teacher");
+      await storeUserTokens(client, teacherUser.id, oauthClient.credentials);
+
+      const teacherIds: string[] = [];
+      for (const teacher of teachers) {
+        const profile = toProfile(teacher.profile);
+        if (!profile) {
+          continue;
+        }
+        const upserted = await upsertUser(client, profile, "teacher");
+        teacherIds.push(upserted.id);
+      }
+
+      const primaryTeacherId = teacherIds[0] ?? teacherUser.id;
+      await upsertCourse(client, course, primaryTeacherId);
+      await upsertCourseTeachers(
+        client,
+        course.id!,
+        teacherIds.length > 0 ? teacherIds : [teacherUser.id]
+      );
+
+      const activeGoogleStudentIds: string[] = [];
+
+      for (const student of students) {
+        const profile = toProfile(student.profile);
+        if (!profile) {
+          continue;
+        }
+        const upserted = await upsertUser(client, profile, "student");
+        await upsertStudent(client, student, course, upserted.id);
+        const googleId = student.userId ?? profile.googleUserId;
+        if (googleId) {
+          activeGoogleStudentIds.push(googleId);
+        }
+      }
+
+      if (activeGoogleStudentIds.length > 0) {
+        await client.query(
+          `
+            DELETE FROM students
+            WHERE course_id = $1
+              AND google_user_id IS NOT NULL
+              AND google_user_id <> ALL($2::text[])
+          `,
+          [course.id, activeGoogleStudentIds]
+        );
+      } else {
+        await client.query(
+          `
+            DELETE FROM students
+            WHERE course_id = $1
+              AND google_user_id IS NOT NULL
+          `,
+          [course.id]
+        );
+      }
+    });
+  } catch (error) {
+    console.error("Failed to refresh roster from Google Classroom", error);
+  }
+};
+
 export const syncClassroomFromCode = async (
   payload: CodeExchangeRequest
 ): Promise<SyncResult> => {
@@ -418,6 +596,8 @@ export const syncClassroomFromCode = async (
           await upsertCourseTeachers(client, course.id, teacherIds.length > 0 ? teacherIds : [teacherUser.id]);
         }
 
+        const activeGoogleStudentIds: string[] = [];
+
         for (const student of students) {
           const profile = toProfile(student.profile);
           if (!profile) {
@@ -425,6 +605,33 @@ export const syncClassroomFromCode = async (
           }
           const upserted = await upsertUser(client, profile, "student");
           await upsertStudent(client, student, course, upserted.id);
+          const googleId = student.userId ?? profile.googleUserId;
+          if (googleId) {
+            activeGoogleStudentIds.push(googleId);
+          }
+        }
+
+        if (course.id) {
+          if (activeGoogleStudentIds.length === 0) {
+            await client.query(
+              `
+                DELETE FROM students
+                WHERE course_id = $1
+                  AND google_user_id IS NOT NULL
+              `,
+              [course.id]
+            );
+          } else {
+            await client.query(
+              `
+                DELETE FROM students
+                WHERE course_id = $1
+                  AND google_user_id IS NOT NULL
+                  AND google_user_id <> ALL($2::text[])
+              `,
+              [course.id, activeGoogleStudentIds]
+            );
+          }
         }
 
         summary.courses.push({
