@@ -202,7 +202,7 @@ const LoginPage = () => {
             <span className="google-icon" aria-hidden="true" />
             {isProcessing ? "Syncing Google Classroom…" : "Sign in with Google"}
           </button>
-          <p className="login-helper">Use your school Google account</p>
+          <p className="login-helper">Use your Google Classroom account</p>
         </div>
       </div>
     </div>
