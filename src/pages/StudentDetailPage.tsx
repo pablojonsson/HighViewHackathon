@@ -408,7 +408,6 @@ const StudentDetailPage = () => {
             <div className="stat-card">
               <p className="subtle">Bonus points</p>
               <h3>{summary?.bonusPoints ?? 0}</h3>
-              <span className="tag bonus">Mentor boosts</span>
             </div>
           </div>
 
