@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
 type AttendanceStatus = "present" | "late" | "excused" | "absent";
 
@@ -56,6 +57,8 @@ const createDefaultEntry = (): StudentEntry => ({
 });
 
 const DataInputPage = () => {
+  const { user } = useAuth();
+  const isTeacher = user?.role === "teacher";
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>("");
   const [sessionName, setSessionName] = useState("");
@@ -69,10 +72,19 @@ const DataInputPage = () => {
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
+    if (!isTeacher || !user) {
+      setCourses([]);
+      return;
+    }
+
     const loadCourses = async () => {
       try {
         setCoursesError(null);
-        const response = await fetch("/api/courses");
+        const params = new URLSearchParams({
+          role: user.role,
+          userId: user.id
+        });
+        const response = await fetch(`/api/courses?${params.toString()}`);
         if (!response.ok) {
           throw new Error("Failed to load courses");
         }
@@ -87,11 +99,11 @@ const DataInputPage = () => {
     };
 
     loadCourses();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const loadRoster = async () => {
-      if (!selectedCourseId) {
+      if (!selectedCourseId || !user || !isTeacher) {
         setRoster([]);
         return;
       }
@@ -99,7 +111,12 @@ const DataInputPage = () => {
       try {
         setRosterLoading(true);
         setRosterError(null);
-        const response = await fetch(`/api/roster?courseId=${encodeURIComponent(selectedCourseId)}`);
+        const params = new URLSearchParams({
+          courseId: selectedCourseId,
+          role: user.role,
+          userId: user.id
+        });
+        const response = await fetch(`/api/roster?${params.toString()}`);
         if (!response.ok) {
           throw new Error("Failed to load roster");
         }
@@ -113,7 +130,7 @@ const DataInputPage = () => {
     };
 
     loadRoster();
-  }, [selectedCourseId]);
+  }, [selectedCourseId, user]);
 
   useEffect(() => {
     setEntries((prev) => {
@@ -183,8 +200,18 @@ const DataInputPage = () => {
   }, [entries, roster]);
 
   const handleSave = async () => {
+    if (!user || !isTeacher) {
+      setSaveError("Only teachers can record attendance sessions.");
+      return;
+    }
+
     if (!selectedCourseId) {
       setSaveError("Select a course before saving.");
+      return;
+    }
+
+    if (!sessionName.trim()) {
+      setSaveError("Section name is required.");
       return;
     }
 
@@ -192,7 +219,7 @@ const DataInputPage = () => {
     setSubmitted(false);
 
     const payload: SaveSessionPayload = {
-      sessionName: sessionName || "Untitled session",
+      sessionName: sessionName.trim(),
       courseId: selectedCourseId,
       entries: roster.map((student) => ({
         studentId: student.id,
@@ -258,11 +285,11 @@ const DataInputPage = () => {
         )}
 
         <label className="subtle" style={{ fontWeight: 600 }}>
-          Session title
+          Section name
         </label>
         <input
           className="session-input"
-          placeholder="e.g. Algebra II · 10/25 Morning Block"
+          placeholder="e.g. Algebra II - Section 2 - 10/25 Morning Block"
           value={sessionName}
           onChange={(event) => setSessionName(event.target.value)}
         />
@@ -391,3 +418,4 @@ const DataInputPage = () => {
 };
 
 export default DataInputPage;
+message.txt
