@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 type Course = {
   id: string;
@@ -27,6 +28,8 @@ const LeaderboardPage = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const courseParam = searchParams.get("courseId");
+  const { user } = useAuth();
+  const role = user?.role ?? null;
 
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>(() => courseParam ?? "");
@@ -34,17 +37,28 @@ const LeaderboardPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coursesError, setCoursesError] = useState<string | null>(null);
+  const [myStudentIds, setMyStudentIds] = useState<string[]>([]);
 
   useEffect(() => {
+    if (!user) {
+      setCourses([]);
+      return;
+    }
+
     const loadCourses = async () => {
       try {
         setCoursesError(null);
-        const response = await fetch("/api/courses");
+        const params = new URLSearchParams({
+          role: user.role,
+          userId: user.id
+        });
+        const response = await fetch(`/api/courses?${params.toString()}`);
         if (!response.ok) {
           throw new Error("Failed to load courses");
         }
         const data = (await response.json()) as { courses: Course[] };
         setCourses(data.courses);
+
         if (!selectedCourseId && data.courses.length > 0) {
           const initial = courseParam ?? data.courses[0].id;
           setSelectedCourseId(initial);
@@ -60,15 +74,22 @@ const LeaderboardPage = () => {
     };
 
     loadCourses();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const loadLeaderboard = async () => {
       try {
         setLoading(true);
         setError(null);
-        const query = selectedCourseId ? `?courseId=${encodeURIComponent(selectedCourseId)}` : "";
+        const params = new URLSearchParams();
+        if (selectedCourseId) {
+          params.set("courseId", selectedCourseId);
+        }
+        if (user) {
+          params.set("role", user.role);
+          params.set("userId", user.id);
+        }
+        const query = params.toString() ? `?${params.toString()}` : "";
         const response = await fetch(`/api/leaderboard${query}`);
         if (!response.ok) {
           throw new Error("Failed to load leaderboard");
@@ -83,8 +104,33 @@ const LeaderboardPage = () => {
       }
     };
 
-    loadLeaderboard();
-  }, [selectedCourseId]);
+    if (user) {
+      loadLeaderboard();
+    }
+  }, [selectedCourseId, user]);
+
+  useEffect(() => {
+    const loadMyStudentIds = async () => {
+      if (!user || user.role !== "student") {
+        setMyStudentIds([]);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/students/by-user?userId=${encodeURIComponent(user.id)}`);
+        if (!response.ok) {
+          throw new Error("Failed to load student records");
+        }
+        const data = (await response.json()) as { students: Array<{ id: string }> };
+        setMyStudentIds(data.students.map((student) => student.id));
+      } catch (err) {
+        console.error("Failed to load student records", err);
+        setMyStudentIds([]);
+      }
+    };
+
+    loadMyStudentIds();
+  }, [user]);
 
   const summary = useMemo(() => {
     if (!entries.length) {
@@ -120,6 +166,13 @@ const LeaderboardPage = () => {
   };
 
   const handleRowClick = (entry: LeaderboardEntry) => {
+    const canOpen =
+      role === "teacher" || (role === "student" && myStudentIds.includes(entry.studentId));
+
+    if (!canOpen) {
+      return;
+    }
+
     navigate(`/mock/student?courseId=${entry.courseId}&studentId=${entry.studentId}`);
   };
 
@@ -175,7 +228,7 @@ const LeaderboardPage = () => {
       <div className="card">
         <h3>Leaderboard</h3>
         {loading ? (
-          <p className="subtle">Loading leaderboard…</p>
+          <p className="subtle">Loading leaderboard...</p>
         ) : error ? (
           <p className="error-message">{error}</p>
         ) : entries.length === 0 ? (
@@ -193,33 +246,39 @@ const LeaderboardPage = () => {
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry, index) => (
-                <tr
-                  key={entry.studentId}
-                  className="clickable-row"
-                  onClick={() => handleRowClick(entry)}
-                >
-                  <td>{index + 1}</td>
-                  <td>
-                    <div className="student-cell">
-                      <strong>{entry.name}</strong>
-                      <span className="subtle">{entry.cohort ?? "No cohort"}</span>
-                    </div>
-                  </td>
-                  <td>{entry.attendanceRate}%</td>
-                  <td>{entry.participationScore.toFixed(1)}</td>
-                  <td>{entry.bonusPoints}</td>
-                  <td>
-                    <span className={riskTagClass[entry.riskLevel]}>
-                      {entry.riskLevel === "high"
-                        ? "High"
-                        : entry.riskLevel === "medium"
-                        ? "Medium"
-                        : "Low"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {entries.map((entry, index) => {
+                const canOpen =
+                  role === "teacher" || (role === "student" && myStudentIds.includes(entry.studentId));
+
+                return (
+                  <tr
+                    key={entry.studentId}
+                    className={canOpen ? "clickable-row" : undefined}
+                    onClick={canOpen ? () => handleRowClick(entry) : undefined}
+                    style={canOpen ? undefined : { cursor: "default" }}
+                  >
+                    <td>{index + 1}</td>
+                    <td>
+                      <div className="student-cell">
+                        <strong>{entry.name}</strong>
+                        <span className="subtle">{entry.cohort ?? "No cohort"}</span>
+                      </div>
+                    </td>
+                    <td>{entry.attendanceRate}%</td>
+                    <td>{entry.participationScore.toFixed(1)}</td>
+                    <td>{entry.bonusPoints}</td>
+                    <td>
+                      <span className={riskTagClass[entry.riskLevel]}>
+                        {entry.riskLevel === "high"
+                          ? "High"
+                          : entry.riskLevel === "medium"
+                          ? "Medium"
+                          : "Low"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
