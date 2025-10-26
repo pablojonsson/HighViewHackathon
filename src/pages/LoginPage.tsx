@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 type GoogleCodeResponse = {
   code?: string;
@@ -45,6 +46,14 @@ const LoginPage = () => {
   const [isReady, setIsReady] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const codeClientRef = useRef<GoogleCodeClient | null>(null);
+  const { user, setUser } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      const nextRoute = user.role === "teacher" ? "/mock/leaderboard" : "/mock/student";
+      navigate(nextRoute, { replace: true });
+    }
+  }, [user, navigate]);
 
   useEffect(() => {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -96,9 +105,19 @@ const LoginPage = () => {
                   );
                 }
 
-                const payload = await res.json();
-                console.info("Synced Google Classroom data", payload);
-                navigate("/mock/leaderboard");
+                const payload = (await res.json()) as {
+                  user: {
+                    id: string;
+                    name: string;
+                    email?: string | null;
+                    role: "teacher" | "student";
+                  };
+                };
+
+                setUser(payload.user);
+                const nextRoute =
+                  payload.user.role === "teacher" ? "/mock/leaderboard" : "/mock/student";
+                navigate(nextRoute, { replace: true });
               })
               .catch((error) => {
                 console.error("Failed to sync Google Classroom data", error);
