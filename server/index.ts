@@ -527,8 +527,9 @@ app.get("/api/leaderboard", async (req, res) => {
           st.course_id,
           COUNT(DISTINCT s.id) AS total_sessions,
           COALESCE(AVG(CASE WHEN ar.status = 'present' THEN 1 ELSE 0 END)::float * 100, 0) AS attendance_rate,
-          COALESCE(AVG(ar.participation)::float, 0) AS avg_attendance_points,
+          COALESCE(SUM(ar.participation)::float, 0) AS attendance_points_total,
           COALESCE(SUM(be.points)::float, 0) AS bonus_points,
+          COALESCE(SUM(ar.participation)::float, 0) + COALESCE(SUM(be.points)::float, 0) AS total_points,
           ARRAY_REMOVE(ARRAY_REMOVE(ARRAY_AGG(DISTINCT TRIM(s.name)), ''), NULL) AS session_names
         FROM students st
         LEFT JOIN attendance_records ar ON ar.student_id = st.id
@@ -536,7 +537,7 @@ app.get("/api/leaderboard", async (req, res) => {
         LEFT JOIN bonus_events be ON be.attendance_record_id = ar.id
         WHERE ${whereSql}
         GROUP BY st.id
-        ORDER BY avg_attendance_points DESC, attendance_rate DESC, st.name ASC
+        ORDER BY total_points DESC, attendance_rate DESC, st.name ASC
       `,
       params
     );
@@ -548,8 +549,9 @@ app.get("/api/leaderboard", async (req, res) => {
       course_id: string;
       total_sessions: number;
       attendance_rate: number;
-      avg_attendance_points: number;
+      attendance_points_total: number;
       bonus_points: number;
+      total_points: number;
       session_names: Array<string | null>;
     }) => ({
       studentId: row.student_id,
@@ -557,8 +559,9 @@ app.get("/api/leaderboard", async (req, res) => {
       cohort: row.cohort,
       courseId: row.course_id,
       attendanceRate: Math.round(row.attendance_rate),
-      attendancePointsAvg: Number(row.avg_attendance_points.toFixed(1)),
+      attendancePointsTotal: Number(row.attendance_points_total.toFixed(1)),
       bonusPoints: Number(row.bonus_points),
+      totalPoints: Number(row.total_points.toFixed(1)),
       sessionNames: row.session_names.filter(
         (sessionName): sessionName is string =>
           Boolean(sessionName && sessionName.trim().length)

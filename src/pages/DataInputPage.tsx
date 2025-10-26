@@ -305,7 +305,7 @@ const DataInputPage = () => {
         </label>
         <input
           className="session-input"
-          placeholder="e.g. Algebra II - Section 2 - 10/25 Morning Block"
+          placeholder="e.g. Section 2 - 10/25"
           value={sessionName}
           onChange={(event) => setSessionName(event.target.value)}
         />

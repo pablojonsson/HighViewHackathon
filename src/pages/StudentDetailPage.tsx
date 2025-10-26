@@ -32,7 +32,6 @@ type StudentDetailResponse = {
   recentSessions: Array<{
     id: string;
     status: AttendanceStatus;
-    notes: string;
     occurredAt: string;
     sessionName: string;
     bonus: Array<{ code: string; points: number }>;
@@ -311,7 +310,7 @@ const StudentDetailPage = () => {
       <div className="card stack">
         <header className="flex-between">
           <div>
-            <h2>{isStudent ? "My summary" : "Student diagnostics"}</h2>
+            <h2>{isStudent ? "My Summary" : "Student diagnostics"}</h2>
             <p className="subtle">
               {isStudent
                 ? "Review your attendance and participation trend."
@@ -423,7 +422,6 @@ const StudentDetailPage = () => {
                     <th>Session</th>
                     <th>Status</th>
                     <th>Bonus</th>
-                    <th>Notes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -446,7 +444,6 @@ const StudentDetailPage = () => {
                           </span>
                         </td>
                         <td>{bonus}</td>
-                        <td>{session.notes || "-"}</td>
                       </tr>
                     );
                   })}

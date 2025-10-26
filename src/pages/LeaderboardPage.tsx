@@ -13,8 +13,9 @@ type LeaderboardEntry = {
   cohort: string | null;
   courseId: string;
   attendanceRate: number;
-  attendancePointsAvg: number;
+  attendancePointsTotal: number;
   bonusPoints: number;
+  totalPoints: number;
   sessionNames: string[];
   riskLevel: "low" | "medium" | "high";
 };
@@ -220,7 +221,10 @@ const LeaderboardPage = () => {
       filteredEntries.reduce((sum, entry) => sum + entry.attendanceRate, 0) / totalStudents
     );
     const averageAttendancePoints = (
-      filteredEntries.reduce((sum, entry) => sum + entry.attendancePointsAvg, 0) / totalStudents
+      filteredEntries.reduce((sum, entry) => sum + entry.attendancePointsTotal, 0) / totalStudents
+    ).toFixed(1);
+    const averageTotalPoints = (
+      filteredEntries.reduce((sum, entry) => sum + entry.totalPoints, 0) / totalStudents
     ).toFixed(1);
     const bonusPoints = filteredEntries.reduce((sum, entry) => sum + entry.bonusPoints, 0);
 
@@ -229,6 +233,7 @@ const LeaderboardPage = () => {
       highRisk,
       averageAttendance,
       averageAttendancePoints,
+      averageTotalPoints,
       bonusPoints
     };
   }, [filteredEntries]);
@@ -284,7 +289,7 @@ const LeaderboardPage = () => {
       <div className="card stack">
         <header className="flex-between">
           <div>
-            <h2>Leaderboard</h2>
+            <h2>Leaderboard Filters</h2>
             <p className="subtle">
               Attendance and participation standings update as teachers log sessions.
             </p>
@@ -339,6 +344,7 @@ const LeaderboardPage = () => {
                 <span className="tag neutral">
                   Avg attendance pts {summary.averageAttendancePoints}
                 </span>
+                <span className="tag neutral">Avg total pts {summary.averageTotalPoints}</span>
                 <span className="tag bonus">Bonus total {summary.bonusPoints}</span>
                 {summary.highRisk > 0 && (
                   <span className="tag danger">{summary.highRisk} high risk</span>
@@ -367,8 +373,10 @@ const LeaderboardPage = () => {
               <tr>
                 <th>#</th>
                 <th>Student</th>
+                <th>Total pts</th>
                 <th>Attendance</th>
-                <th>Bonus</th>
+                <th>Attendance pts</th>
+                <th>Bonus pts</th>
                 {showRiskColumn && <th>Risk</th>}
               </tr>
             </thead>
@@ -385,13 +393,27 @@ const LeaderboardPage = () => {
                     style={canOpen ? undefined : { cursor: "default" }}
                   >
                     <td>{index + 1}</td>
-                    <td>
-                      <div className="student-cell">
-                        <strong>{entry.name}</strong>
-                      </div>
-                    </td>
+                <td>
+                  <div className="student-cell">
+                    <span
+                      className={`leader-name ${
+                        index === 0
+                          ? "gold"
+                          : index === 1
+                          ? "silver"
+                          : index === 2
+                          ? "bronze"
+                          : ""
+                      }`}
+                    >
+                      {entry.name}
+                    </span>
+                  </div>
+                </td>
+                    <td>{entry.totalPoints.toFixed(1)}</td>
                     <td>{entry.attendanceRate}%</td>
-                    <td>{entry.bonusPoints}</td>
+                    <td>{entry.attendancePointsTotal.toFixed(1)}</td>
+                    <td>{entry.bonusPoints.toFixed(1)}</td>
                     {showRiskColumn && (
                       <td>
                         <span className={riskTagClass[entry.riskLevel]}>
