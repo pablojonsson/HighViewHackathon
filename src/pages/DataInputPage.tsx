@@ -418,4 +418,3 @@ const DataInputPage = () => {
 };
 
 export default DataInputPage;
-message.txt
