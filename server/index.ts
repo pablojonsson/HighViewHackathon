@@ -444,6 +444,9 @@ app.get("/api/students/:studentId", async (req, res) => {
 
 app.get("/api/leaderboard", async (req, res) => {
   const courseId = typeof req.query.courseId === "string" ? req.query.courseId : null;
+  const sessionNameRaw = typeof req.query.sessionName === "string" ? req.query.sessionName : null;
+  const sessionName =
+    sessionNameRaw && sessionNameRaw.trim().length > 0 ? sessionNameRaw.trim() : null;
   const roleParam = typeof req.query.role === "string" ? req.query.role : null;
   const userId = typeof req.query.userId === "string" ? req.query.userId : null;
 
@@ -493,6 +496,11 @@ app.get("/api/leaderboard", async (req, res) => {
       params.push(allowedCourseIds);
     }
 
+    if (sessionName) {
+      whereClauses.push(`TRIM(s.name) = $${params.length + 1}`);
+      params.push(sessionName);
+    }
+
     const whereSql = whereClauses.length > 0 ? whereClauses.join(" AND ") : "TRUE";
 
     const result = await query<{
@@ -504,6 +512,7 @@ app.get("/api/leaderboard", async (req, res) => {
       attendance_rate: number;
       avg_participation: number;
       bonus_points: number;
+      session_names: Array<string | null>;
     }>(
       `
         SELECT
@@ -514,7 +523,8 @@ app.get("/api/leaderboard", async (req, res) => {
           COUNT(DISTINCT s.id) AS total_sessions,
           COALESCE(AVG(CASE WHEN ar.status = 'present' THEN 1 ELSE 0 END)::float * 100, 0) AS attendance_rate,
           COALESCE(AVG(ar.participation)::float, 0) AS avg_participation,
-          COALESCE(SUM(be.points)::float, 0) AS bonus_points
+          COALESCE(SUM(be.points)::float, 0) AS bonus_points,
+          ARRAY_REMOVE(ARRAY_REMOVE(ARRAY_AGG(DISTINCT TRIM(s.name)), ''), NULL) AS session_names
         FROM students st
         LEFT JOIN attendance_records ar ON ar.student_id = st.id
         LEFT JOIN sessions s ON s.id = ar.session_id
@@ -535,6 +545,7 @@ app.get("/api/leaderboard", async (req, res) => {
       attendance_rate: number;
       avg_participation: number;
       bonus_points: number;
+      session_names: Array<string | null>;
     }) => ({
       studentId: row.student_id,
       name: row.name,
@@ -543,6 +554,10 @@ app.get("/api/leaderboard", async (req, res) => {
       attendanceRate: Math.round(row.attendance_rate),
       participationScore: Number(row.avg_participation.toFixed(1)),
       bonusPoints: Number(row.bonus_points),
+      sessionNames: row.session_names.filter(
+        (sessionName): sessionName is string =>
+          Boolean(sessionName && sessionName.trim().length)
+      ),
       riskLevel:
         row.attendance_rate < 0.7 * 100
           ? "high"

@@ -15,6 +15,7 @@ type LeaderboardEntry = {
   attendanceRate: number;
   participationScore: number;
   bonusPoints: number;
+  sessionNames: string[];
   riskLevel: "low" | "medium" | "high";
 };
 
@@ -28,6 +29,9 @@ const LeaderboardPage = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const courseParam = searchParams.get("courseId");
+  const sectionParam = searchParams.get("section");
+  const normalizedSectionParam =
+    sectionParam && sectionParam.trim().length > 0 ? sectionParam.trim() : null;
   const { user } = useAuth();
   const role = user?.role ?? null;
 
@@ -38,6 +42,13 @@ const LeaderboardPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [coursesError, setCoursesError] = useState<string | null>(null);
   const [myStudentIds, setMyStudentIds] = useState<string[]>([]);
+  const [selectedSection, setSelectedSection] = useState<string>(normalizedSectionParam ?? "all");
+  const [availableSections, setAvailableSections] = useState<string[]>(() =>
+    normalizedSectionParam && normalizedSectionParam !== "all"
+      ? ["all", normalizedSectionParam]
+      : ["all"]
+  );
+  const [hasFetchedSections, setHasFetchedSections] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -89,25 +100,73 @@ const LeaderboardPage = () => {
           params.set("role", user.role);
           params.set("userId", user.id);
         }
+        if (selectedSection !== "all") {
+          params.set("sessionName", selectedSection);
+        }
         const query = params.toString() ? `?${params.toString()}` : "";
         const response = await fetch(`/api/leaderboard${query}`);
         if (!response.ok) {
           throw new Error("Failed to load leaderboard");
         }
         const data = (await response.json()) as { leaderboard: LeaderboardEntry[] };
-        setEntries(data.leaderboard);
+        const normalizedEntries = data.leaderboard.map((entry) => ({
+          ...entry,
+          sessionNames: (entry.sessionNames ?? [])
+            .map((name) => name.trim())
+            .filter((name) => name.length > 0)
+        }));
+        setEntries(normalizedEntries);
+        const uniqueSessions = new Set<string>();
+        normalizedEntries.forEach((entry) => {
+          entry.sessionNames.forEach((session) => {
+            if (session.toLowerCase() === "all") {
+              return;
+            }
+            uniqueSessions.add(session);
+          });
+        });
+        if (selectedSection === "all") {
+          const sorted = Array.from(uniqueSessions).sort((a, b) =>
+            a.localeCompare(b, undefined, { sensitivity: "base" })
+          );
+          setAvailableSections(["all", ...sorted]);
+        } else {
+          setAvailableSections((prev) => {
+            const merged = new Set(prev);
+            if (uniqueSessions.size === 0 && selectedSection) {
+              merged.add(selectedSection);
+            } else {
+              uniqueSessions.forEach((session) => merged.add(session));
+            }
+            const sorted = Array.from(merged)
+              .filter((name) => name !== "all")
+              .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+            return ["all", ...sorted];
+          });
+        }
+        setHasFetchedSections(true);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error loading leaderboard");
         setEntries([]);
+        if (selectedSection !== "all") {
+          setSelectedSection("all");
+        }
       } finally {
         setLoading(false);
       }
     };
 
-    if (user) {
+    if (user && selectedCourseId) {
       loadLeaderboard();
+    } else if (!selectedCourseId) {
+      setEntries([]);
+      setAvailableSections(["all"]);
+      setHasFetchedSections(false);
+      if (selectedSection !== "all") {
+        setSelectedSection("all");
+      }
     }
-  }, [selectedCourseId, user]);
+  }, [selectedCourseId, selectedSection, user]);
 
   useEffect(() => {
     const loadMyStudentIds = async () => {
@@ -132,20 +191,38 @@ const LeaderboardPage = () => {
     loadMyStudentIds();
   }, [user]);
 
+  useEffect(() => {
+    if (
+      hasFetchedSections &&
+      selectedSection !== "all" &&
+      !availableSections.includes(selectedSection)
+    ) {
+      setSelectedSection("all");
+    }
+  }, [availableSections, hasFetchedSections, selectedSection]);
+
+  const filteredEntries = useMemo(() => {
+    if (selectedSection === "all") {
+      return entries;
+    }
+
+    return entries.filter((entry) => entry.sessionNames.includes(selectedSection));
+  }, [entries, selectedSection]);
+
   const summary = useMemo(() => {
-    if (!entries.length) {
+    if (!filteredEntries.length) {
       return null;
     }
 
-    const totalStudents = entries.length;
-    const highRisk = entries.filter((entry) => entry.riskLevel === "high").length;
+    const totalStudents = filteredEntries.length;
+    const highRisk = filteredEntries.filter((entry) => entry.riskLevel === "high").length;
     const averageAttendance = Math.round(
-      entries.reduce((sum, entry) => sum + entry.attendanceRate, 0) / totalStudents
+      filteredEntries.reduce((sum, entry) => sum + entry.attendanceRate, 0) / totalStudents
     );
     const averageParticipation = (
-      entries.reduce((sum, entry) => sum + entry.participationScore, 0) / totalStudents
+      filteredEntries.reduce((sum, entry) => sum + entry.participationScore, 0) / totalStudents
     ).toFixed(1);
-    const bonusPoints = entries.reduce((sum, entry) => sum + entry.bonusPoints, 0);
+    const bonusPoints = filteredEntries.reduce((sum, entry) => sum + entry.bonusPoints, 0);
 
     return {
       totalStudents,
@@ -154,16 +231,40 @@ const LeaderboardPage = () => {
       averageParticipation,
       bonusPoints
     };
-  }, [entries]);
+  }, [filteredEntries]);
 
   const handleCourseChange = (courseId: string) => {
     setSelectedCourseId(courseId);
+    setSelectedSection("all");
+    setAvailableSections(["all"]);
+    setHasFetchedSections(false);
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.set("courseId", courseId);
+      next.delete("section");
       return next;
     });
   };
+
+  useEffect(() => {
+    setSearchParams((prev) => {
+      const current = prev.get("section");
+      if (selectedSection === "all") {
+        if (!current) {
+          return prev;
+        }
+        const next = new URLSearchParams(prev);
+        next.delete("section");
+        return next;
+      }
+      if (current === selectedSection) {
+        return prev;
+      }
+      const next = new URLSearchParams(prev);
+      next.set("section", selectedSection);
+      return next;
+    });
+  }, [selectedSection, setSearchParams]);
 
   const showRiskColumn = role === "teacher";
 
@@ -211,6 +312,21 @@ const LeaderboardPage = () => {
                 ))}
               </select>
             </div>
+            <div className="selector-field">
+              <label htmlFor="section-select">Section</label>
+              <select
+                id="section-select"
+                value={selectedSection}
+                onChange={(event) => setSelectedSection(event.target.value)}
+                disabled={availableSections.length <= 1}
+              >
+                {availableSections.map((section) => (
+                  <option key={section} value={section}>
+                    {section === "all" ? "All sections" : section}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         )}
 
@@ -237,8 +353,12 @@ const LeaderboardPage = () => {
           <p className="subtle">Loading leaderboard...</p>
         ) : error ? (
           <p className="error-message">{error}</p>
-        ) : entries.length === 0 ? (
-          <p className="subtle">No entries yet. Log attendance to populate standings.</p>
+        ) : filteredEntries.length === 0 ? (
+          <p className="subtle">
+            {selectedSection === "all"
+              ? "No entries yet. Log attendance to populate standings."
+              : "No entries for this section yet."}
+          </p>
         ) : (
           <table className="data-table">
             <thead>
@@ -252,7 +372,7 @@ const LeaderboardPage = () => {
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry, index) => {
+              {filteredEntries.map((entry, index) => {
                 const canOpen =
                   role === "teacher" || (role === "student" && myStudentIds.includes(entry.studentId));
 
@@ -267,7 +387,6 @@ const LeaderboardPage = () => {
                     <td>
                       <div className="student-cell">
                         <strong>{entry.name}</strong>
-                        <span className="subtle">{entry.cohort ?? "No cohort"}</span>
                       </div>
                     </td>
                     <td>{entry.attendanceRate}%</td>

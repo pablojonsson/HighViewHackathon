@@ -335,7 +335,6 @@ const DataInputPage = () => {
                     <td>
                       <div className="student-cell">
                         <strong>{student.name}</strong>
-                        <span className="subtle">{student.cohort ?? "No cohort"}</span>
                       </div>
                     </td>
                     <td>
