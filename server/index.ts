@@ -12,6 +12,22 @@ import {
 } from "./db";
 import { refreshTeacherCourseRoster, syncClassroomFromCode } from "./services/googleClassroom";
 
+class DuplicateSessionEntryError extends Error {
+  duplicates: string[];
+
+  constructor(duplicateNames: string[]) {
+    const uniqueNames = Array.from(new Set(duplicateNames));
+    const message =
+      uniqueNames.length === 1
+        ? `${uniqueNames[0]} already has a record for this section and company.`
+        : `The following students already have records for this section and company: ${uniqueNames.join(", ")}.`;
+    super(message);
+    this.name = "DuplicateSessionEntryError";
+    this.duplicates = uniqueNames;
+    Object.setPrototypeOf(this, DuplicateSessionEntryError.prototype);
+  }
+}
+
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
 
@@ -146,11 +162,11 @@ app.post("/api/sessions", async (req: Request, res: Response) => {
     sessionName?: string;
     courseId?: string;
     occurredAt?: string;
-  entries?: Array<{
-    studentId: string;
-    status: string;
-    bonus?: string[];
-  }>;
+    entries?: Array<{
+      studentId: string;
+      status: string;
+      bonus?: string[];
+    }>;
   };
 
   if (!payload.sessionName || typeof payload.sessionName !== "string") {
@@ -164,16 +180,50 @@ app.post("/api/sessions", async (req: Request, res: Response) => {
   }
 
   const allowedStatuses = new Set<AttendanceStatus>(["present", "late", "excused", "absent"]);
+  const trimmedSessionName = payload.sessionName.trim();
+  if (!trimmedSessionName) {
+    return res.status(400).send("sessionName is required");
+  }
+  const uniqueStudentIds = Array.from(
+    new Set(
+      (payload.entries ?? [])
+        .map((entry) => entry?.studentId)
+        .filter((studentId): studentId is string => typeof studentId === "string" && studentId.length > 0)
+    )
+  );
 
   try {
     const sessionId = await withTransaction<string>(async (client: PoolClient) => {
+      if (uniqueStudentIds.length > 0) {
+        const duplicateResult = await client.query<{
+          student_id: string;
+          student_name: string | null;
+        }>(
+          `
+            SELECT ar.student_id, COALESCE(st.name, ar.student_id) AS student_name
+            FROM attendance_records ar
+            JOIN sessions s ON s.id = ar.session_id
+            LEFT JOIN students st ON st.id = ar.student_id
+            WHERE s.course_id = $1
+              AND LOWER(TRIM(s.name)) = LOWER($2)
+              AND ar.student_id = ANY($3::text[])
+          `,
+          [payload.courseId, trimmedSessionName, uniqueStudentIds]
+        );
+
+        if (duplicateResult.rowCount > 0) {
+          const duplicateNames = duplicateResult.rows.map((row) => row.student_name ?? row.student_id);
+          throw new DuplicateSessionEntryError(duplicateNames);
+        }
+      }
+
       const sessionResult = await client.query<{ id: string }>(
         `
           INSERT INTO sessions (course_id, name, occurred_at)
           VALUES ($1, $2, COALESCE($3::timestamptz, NOW()))
           RETURNING id
         `,
-        [payload.courseId, payload.sessionName, payload.occurredAt ?? null]
+        [payload.courseId, trimmedSessionName, payload.occurredAt ?? null]
       );
 
       const insertedSessionId = sessionResult.rows[0].id;
@@ -234,6 +284,9 @@ app.post("/api/sessions", async (req: Request, res: Response) => {
 
     res.status(201).json({ sessionId });
   } catch (error) {
+    if (error instanceof DuplicateSessionEntryError) {
+      return res.status(409).send(error.message);
+    }
     console.error("Failed to save session", error);
     res.status(500).send(
       error instanceof Error ? error.message : "Failed to save session"
