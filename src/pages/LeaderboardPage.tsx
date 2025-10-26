@@ -165,6 +165,8 @@ const LeaderboardPage = () => {
     });
   };
 
+  const showRiskColumn = role === "teacher";
+
   const handleRowClick = (entry: LeaderboardEntry) => {
     const canOpen =
       role === "teacher" || (role === "student" && myStudentIds.includes(entry.studentId));
@@ -216,10 +218,14 @@ const LeaderboardPage = () => {
           <div className="leaderboard-summary">
             <span className="tag neutral">Students {summary.totalStudents}</span>
             <span className="tag success">Avg attendance {summary.averageAttendance}%</span>
-            <span className="tag neutral">Avg participation {summary.averageParticipation}</span>
-            <span className="tag bonus">Bonus total {summary.bonusPoints}</span>
-            {summary.highRisk > 0 && (
-              <span className="tag danger">{summary.highRisk} high risk</span>
+            {role === "teacher" && (
+              <>
+                <span className="tag neutral">Avg participation {summary.averageParticipation}</span>
+                <span className="tag bonus">Bonus total {summary.bonusPoints}</span>
+                {summary.highRisk > 0 && (
+                  <span className="tag danger">{summary.highRisk} high risk</span>
+                )}
+              </>
             )}
           </div>
         )}
@@ -242,7 +248,7 @@ const LeaderboardPage = () => {
                 <th>Attendance</th>
                 <th>Participation</th>
                 <th>Bonus</th>
-                <th>Risk</th>
+                {showRiskColumn && <th>Risk</th>}
               </tr>
             </thead>
             <tbody>
@@ -267,15 +273,17 @@ const LeaderboardPage = () => {
                     <td>{entry.attendanceRate}%</td>
                     <td>{entry.participationScore.toFixed(1)}</td>
                     <td>{entry.bonusPoints}</td>
-                    <td>
-                      <span className={riskTagClass[entry.riskLevel]}>
-                        {entry.riskLevel === "high"
-                          ? "High"
-                          : entry.riskLevel === "medium"
+                    {showRiskColumn && (
+                      <td>
+                        <span className={riskTagClass[entry.riskLevel]}>
+                          {entry.riskLevel === "high"
+                            ? "High"
+                            : entry.riskLevel === "medium"
                             ? "Medium"
                             : "Low"}
-                      </span>
-                    </td>
+                        </span>
+                      </td>
+                    )}
                   </tr>
                 );
               })}

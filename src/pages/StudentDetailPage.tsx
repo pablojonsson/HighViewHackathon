@@ -420,28 +420,6 @@ const StudentDetailPage = () => {
             </div>
           </div>
 
-          <div className="card stack">
-            <header className="flex-between">
-              <div>
-                <h3>{studentData.student.name}</h3>
-                <p className="subtle">
-                  {studentData.student.cohort ?? "No cohort"} · Company {studentData.student.courseId}
-                </p>
-              </div>
-            </header>
-            <div className="recent-session-note">
-              Mentor summary: students with{" "}
-              <strong>
-                {summary?.riskLevel === "high"
-                  ? "high risk"
-                  : summary?.riskLevel === "medium"
-                  ? "medium risk"
-                  : "healthy"}
-              </strong>{" "}
-              attendance should receive targeted support.
-            </div>
-          </div>
-
           <div className="card">
             <h3>Recent sessions</h3>
             {studentData.recentSessions.length === 0 ? (

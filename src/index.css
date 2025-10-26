@@ -92,6 +92,48 @@ textarea {
   font-size: 1.8rem;
 }
 
+.mock-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.mock-user-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+
+.mock-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+}
+
+.mock-user strong {
+  color: #1f3c88;
+}
+
+.signout-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.9rem;
+  border-radius: 0.6rem;
+  background: rgba(31, 60, 136, 0.12);
+  border: 1px solid rgba(31, 60, 136, 0.18);
+  font-size: 0.9rem;
+  color: #1f3c88;
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+
+.signout-link:hover {
+  background: rgba(31, 60, 136, 0.2);
+  transform: translateY(-1px);
+}
+
 .mock-nav {
   display: flex;
   gap: 1rem;
