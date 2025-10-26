@@ -1,103 +1,97 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
-type Course = {
+type AttendanceStatus = "present" | "late" | "excused" | "absent";
+
+interface Course {
   id: string;
   name: string;
-};
+}
 
-type Student = {
+interface Student {
   id: string;
   name: string;
   cohort: string | null;
   courseId: string;
+}
+
+interface StudentEntry {
+  status: AttendanceStatus;
+  participation: number;
+  bonus: string[];
+  notes: string;
+}
+
+interface RosterResponse {
+  roster: Student[];
+}
+
+interface CoursesResponse {
+  courses: Course[];
+}
+
+interface SaveSessionPayload {
+  sessionName: string;
+  courseId: string;
+  occurredAt?: string;
+  entries: Array<StudentEntry & { studentId: string }>;
+}
+
+const bonusOptions = [
+  { key: "lead", label: "Led discussion (+2)" },
+  { key: "mentor", label: "Peer mentor (+1)" },
+  { key: "project", label: "Project milestone (+3)" }
+] as const;
+
+const bonusPointMap: Record<(typeof bonusOptions)[number]["key"], number> = {
+  lead: 2,
+  mentor: 1,
+  project: 3
 };
 
-type AttendanceStatus = "present" | "late" | "excused" | "absent";
-type BonusCode = "lead" | "mentor" | "project";
+const createDefaultEntry = (): StudentEntry => ({
+  status: "present",
+  participation: 3,
+  bonus: [],
+  notes: ""
+});
 
-type StudentDetailResponse = {
-  student: {
-    id: string;
-    name: string;
-    cohort: string | null;
-    courseId: string;
-  };
-  stats: {
-    totalSessions: number;
-    attendanceRate: number;
-    averageParticipation: string;
-    bonusPoints: number;
-  };
-  recentSessions: Array<{
-    id: string;
-    status: AttendanceStatus;
-    participation: number;
-    notes: string;
-    occurredAt: string;
-    sessionName: string;
-    bonus: Array<{ code: BonusCode; points: number }>;
-  }>;
-};
-
-const statusTagClass: Record<AttendanceStatus, string> = {
-  present: "tag success",
-  late: "tag warning",
-  excused: "tag info",
-  absent: "tag danger"
-};
-
-const statusLabel: Record<AttendanceStatus, string> = {
-  present: "Present",
-  late: "Late",
-  excused: "Excused",
-  absent: "Absent"
-};
-
-const bonusLabels: Record<BonusCode, string> = {
-  lead: "Led discussion",
-  mentor: "Peer mentor",
-  project: "Project milestone"
-};
-
-const StudentDetailPage = () => {
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  const courseParam = searchParams.get("courseId");
-  const studentParam = searchParams.get("studentId");
-
+const DataInputPage = () => {
+  const { user } = useAuth();
+  const isTeacher = user?.role === "teacher";
   const [courses, setCourses] = useState<Course[]>([]);
-  const [coursesError, setCoursesError] = useState<string | null>(null);
+  const [selectedCourseId, setSelectedCourseId] = useState<string>("");
+  const [sessionName, setSessionName] = useState("");
   const [roster, setRoster] = useState<Student[]>([]);
+  const [entries, setEntries] = useState<Record<string, StudentEntry>>({});
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState<string | null>(null);
-  const [studentData, setStudentData] = useState<StudentDetailResponse | null>(null);
-  const [studentLoading, setStudentLoading] = useState(false);
-  const [studentError, setStudentError] = useState<string | null>(null);
-
-  const [selectedCourseId, setSelectedCourseId] = useState<string>(() => courseParam ?? "");
-  const [selectedStudentId, setSelectedStudentId] = useState<string>(() => studentParam ?? "");
+  const [coursesError, setCoursesError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
+    if (!isTeacher || !user) {
+      setCourses([]);
+      return;
+    }
+
     const loadCourses = async () => {
       try {
         setCoursesError(null);
-        const response = await fetch("/api/courses");
+        const params = new URLSearchParams({
+          role: user.role,
+          userId: user.id
+        });
+        const response = await fetch(`/api/courses?${params.toString()}`);
         if (!response.ok) {
           throw new Error("Failed to load courses");
         }
-        const data = (await response.json()) as { courses: Course[] };
+        const data = (await response.json()) as CoursesResponse;
         setCourses(data.courses);
-
-        if (!selectedCourseId && data.courses.length > 0) {
-          const initialCourseId = courseParam ?? data.courses[0].id;
-          setSelectedCourseId(initialCourseId);
-          setSearchParams((prev) => {
-            const next = new URLSearchParams(prev);
-            next.set("courseId", initialCourseId);
-            return next;
-          });
+        if (data.courses.length && !selectedCourseId) {
+          setSelectedCourseId(data.courses[0].id);
         }
       } catch (error) {
         setCoursesError(error instanceof Error ? error.message : "Unknown error loading courses");
@@ -105,12 +99,11 @@ const StudentDetailPage = () => {
     };
 
     loadCourses();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const loadRoster = async () => {
-      if (!selectedCourseId) {
+      if (!selectedCourseId || !user || !isTeacher) {
         setRoster([]);
         return;
       }
@@ -118,30 +111,17 @@ const StudentDetailPage = () => {
       try {
         setRosterLoading(true);
         setRosterError(null);
-        const response = await fetch(`/api/roster?courseId=${encodeURIComponent(selectedCourseId)}`);
+        const params = new URLSearchParams({
+          courseId: selectedCourseId,
+          role: user.role,
+          userId: user.id
+        });
+        const response = await fetch(`/api/roster?${params.toString()}`);
         if (!response.ok) {
           throw new Error("Failed to load roster");
         }
-        const data = (await response.json()) as { roster: Student[] };
+        const data = (await response.json()) as RosterResponse;
         setRoster(data.roster);
-
-        if (studentParam && data.roster.some((student) => student.id === studentParam)) {
-          setSelectedStudentId(studentParam);
-        } else if (data.roster.length > 0) {
-          setSelectedStudentId(data.roster[0].id);
-          setSearchParams((prev) => {
-            const next = new URLSearchParams(prev);
-            next.set("studentId", data.roster[0].id);
-            return next;
-          });
-        } else {
-          setSelectedStudentId("");
-          setSearchParams((prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete("studentId");
-            return next;
-          });
-        }
       } catch (error) {
         setRosterError(error instanceof Error ? error.message : "Unknown error loading roster");
       } finally {
@@ -149,259 +129,292 @@ const StudentDetailPage = () => {
       }
     };
 
-    if (selectedCourseId) {
-      loadRoster();
-    } else {
-      setRoster([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCourseId, studentParam]);
+    loadRoster();
+  }, [selectedCourseId, user]);
 
   useEffect(() => {
-    const fetchStudent = async () => {
-      if (!selectedStudentId) {
-        setStudentData(null);
-        return;
-      }
-
-      try {
-        setStudentLoading(true);
-        setStudentError(null);
-        const response = await fetch(`/api/students/${selectedStudentId}`);
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error("Student not found");
-          }
-          throw new Error("Failed to load student diagnostics");
-        }
-        const data = (await response.json()) as StudentDetailResponse;
-        setStudentData(data);
-      } catch (error) {
-        setStudentError(error instanceof Error ? error.message : "Unknown error loading student");
-        setStudentData(null);
-      } finally {
-        setStudentLoading(false);
-      }
-    };
-
-    fetchStudent();
-  }, [selectedStudentId]);
-
-  const summary = useMemo(() => {
-    if (!studentData) {
-      return null;
-    }
-
-    const attendanceRate = studentData.stats.attendanceRate;
-    const participation = Number.parseFloat(studentData.stats.averageParticipation);
-    const riskLevel = attendanceRate < 70 ? "high" : attendanceRate < 85 ? "medium" : "low";
-
-    return {
-      attendanceRate,
-      participationScore: Number.isNaN(participation) ? 0 : participation,
-      totalSessions: studentData.stats.totalSessions,
-      bonusPoints: studentData.stats.bonusPoints,
-      riskLevel: riskLevel as "low" | "medium" | "high"
-    };
-  }, [studentData]);
-
-  const handleCourseChange = (courseId: string) => {
-    setSelectedCourseId(courseId);
-    setSelectedStudentId("");
-    setStudentData(null);
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set("courseId", courseId);
-      next.delete("studentId");
+    setEntries((prev) => {
+      const next: Record<string, StudentEntry> = {};
+      roster.forEach((student) => {
+        next[student.id] = prev[student.id] ? { ...prev[student.id] } : createDefaultEntry();
+      });
       return next;
+    });
+  }, [roster]);
+
+  const updateEntry = (studentId: string, field: keyof StudentEntry, value: unknown) => {
+    setEntries((prev) => ({
+      ...prev,
+      [studentId]: {
+        ...(prev[studentId] ?? createDefaultEntry()),
+        [field]: value
+      }
+    }));
+  };
+
+  const toggleBonus = (studentId: string, bonusKey: string) => {
+    setEntries((prev) => {
+      const current = prev[studentId] ?? createDefaultEntry();
+      const hasBonus = current.bonus.includes(bonusKey);
+      return {
+        ...prev,
+        [studentId]: {
+          ...current,
+          bonus: hasBonus
+            ? current.bonus.filter((key) => key !== bonusKey)
+            : [...current.bonus, bonusKey]
+        }
+      };
     });
   };
 
-  const handleStudentChange = (studentId: string) => {
-    setSelectedStudentId(studentId);
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set("studentId", studentId);
-      if (!selectedCourseId) {
-        next.delete("courseId");
+  const summary = useMemo(() => {
+    const counts = {
+      present: 0,
+      late: 0,
+      excused: 0,
+      absent: 0,
+      totalParticipation: 0,
+      bonusPoints: 0
+    };
+
+    roster.forEach((student) => {
+      const entry = entries[student.id];
+      if (!entry) {
+        return;
       }
-      return next;
+
+      const statusKey = entry.status as keyof typeof counts;
+      counts[statusKey] += 1;
+      counts.totalParticipation += entry.participation;
+      entry.bonus.forEach((bonusKey) => {
+        counts.bonusPoints += bonusPointMap[bonusKey as keyof typeof bonusPointMap] ?? 0;
+      });
     });
+
+    return {
+      ...counts,
+      avgParticipation:
+        roster.length > 0 ? (counts.totalParticipation / roster.length).toFixed(1) : "0.0"
+    };
+  }, [entries, roster]);
+
+  const handleSave = async () => {
+    if (!user || !isTeacher) {
+      setSaveError("Only teachers can record attendance sessions.");
+      return;
+    }
+
+    if (!selectedCourseId) {
+      setSaveError("Select a course before saving.");
+      return;
+    }
+
+    if (!sessionName.trim()) {
+      setSaveError("Section name is required.");
+      return;
+    }
+
+    setSaveError(null);
+    setSubmitted(false);
+
+    const payload: SaveSessionPayload = {
+      sessionName: sessionName.trim(),
+      courseId: selectedCourseId,
+      entries: roster.map((student) => ({
+        studentId: student.id,
+        ...(entries[student.id] ?? createDefaultEntry())
+      }))
+    };
+
+    try {
+      setSaving(true);
+      const response = await fetch("/api/sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to save session");
+      }
+
+      setSubmitted(true);
+      window.setTimeout(() => setSubmitted(false), 2500);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Unknown error during save");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="stack">
       <div className="card stack">
-        <div className="flex-between">
-          <div>
-            <h2>Student diagnostics</h2>
-            <p className="subtle">Compare attendance and engagement for a single learner.</p>
-          </div>
-          <button className="link-btn" onClick={() => navigate("/mock/leaderboard")}>
-            ← Back to leaderboard
-          </button>
-        </div>
+        <h2>Session log</h2>
+        <p className="subtle">
+          Track attendance, participation, and bonus actions for today&apos;s session. Data now
+          persists via the Node/Express + PostgreSQL backend.
+        </p>
 
         {coursesError ? (
           <div className="error-message">{coursesError}</div>
         ) : (
-          <div className="selector-grid">
-            <div className="selector-field">
-              <label htmlFor="course">Course</label>
-              <select
-                id="course"
-                value={selectedCourseId}
-                onChange={(event) => handleCourseChange(event.target.value)}
-              >
-                <option value="" disabled>
-                  Select course
+          <div className="course-picker">
+            <label htmlFor="course" className="subtle" style={{ fontWeight: 600 }}>
+              Course
+            </label>
+            <select
+              id="course"
+              value={selectedCourseId}
+              onChange={(event) => setSelectedCourseId(event.target.value)}
+            >
+              <option value="" disabled>
+                Select a course
+              </option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.name}
                 </option>
-                {courses.map((course) => (
-                  <option key={course.id} value={course.id}>
-                    {course.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="selector-field">
-              <label htmlFor="student">Student</label>
-              <select
-                id="student"
-                value={selectedStudentId}
-                onChange={(event) => handleStudentChange(event.target.value)}
-                disabled={roster.length === 0}
-              >
-                <option value="" disabled>
-                  Select student
-                </option>
-                {roster.map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+              ))}
+            </select>
           </div>
         )}
 
-        {rosterLoading && <div className="subtle">Loading roster…</div>}
-        {rosterError && <div className="error-message">{rosterError}</div>}
+        <label className="subtle" style={{ fontWeight: 600 }}>
+          Section name
+        </label>
+        <input
+          className="session-input"
+          placeholder="e.g. Algebra II - Section 2 - 10/25 Morning Block"
+          value={sessionName}
+          onChange={(event) => setSessionName(event.target.value)}
+        />
       </div>
 
-      {studentLoading ? (
-        <div className="card">
-          <p className="subtle">Loading student diagnostics…</p>
-        </div>
-      ) : studentError ? (
-        <div className="card">
-          <p className="error-message">{studentError}</p>
-        </div>
-      ) : !studentData ? (
-        <div className="card">
-          <p className="subtle">Select a student to view detailed attendance diagnostics.</p>
-        </div>
-      ) : (
-        <>
-          <div className="card-grid stat-grid">
-            <div className="stat-card">
-              <p className="subtle">Attendance rate</p>
-              <h3>{summary ? `${summary.attendanceRate}%` : "0%"}</h3>
-              <span className={summary?.riskLevel === "high" ? "tag danger" : summary?.riskLevel === "medium" ? "tag warning" : "tag success"}>
-                {summary?.riskLevel === "high"
-                  ? "High risk"
-                  : summary?.riskLevel === "medium"
-                  ? "Watch closely"
-                  : "Healthy"}
-              </span>
-            </div>
-            <div className="stat-card">
-              <p className="subtle">Participation avg</p>
-              <h3>{summary ? summary.participationScore.toFixed(1) : "0.0"}</h3>
-              <span className="tag neutral">Scale 0–5</span>
-            </div>
-            <div className="stat-card">
-              <p className="subtle">Sessions logged</p>
-              <h3>{summary?.totalSessions ?? 0}</h3>
-              <span className="tag neutral">Last 30 sessions</span>
-            </div>
-            <div className="stat-card">
-              <p className="subtle">Bonus points</p>
-              <h3>{summary?.bonusPoints ?? 0}</h3>
-              <span className="tag bonus">Mentor boosts</span>
-            </div>
+      <div className="card roster-card">
+        <div className="roster-head">
+          <h2>Roster</h2>
+          <div className="roster-summary">
+            <span className="tag success">Present {summary.present}</span>
+            <span className="tag warning">Late {summary.late}</span>
+            <span className="tag info">Excused {summary.excused}</span>
+            <span className="tag danger">Absent {summary.absent}</span>
+            <span className="tag neutral">
+              Avg participation {summary.avgParticipation}
+            </span>
+            <span className="tag bonus">Bonus pts {summary.bonusPoints}</span>
           </div>
+        </div>
 
-          <div className="card stack">
-            <header className="flex-between">
-              <div>
-                <h3>{studentData.student.name}</h3>
-                <p className="subtle">
-                  {studentData.student.cohort ?? "No cohort"} · Course {studentData.student.courseId}
-                </p>
-              </div>
-            </header>
-            <div className="recent-session-note">
-              Mentor summary: students with{" "}
-              <strong>
-                {summary?.riskLevel === "high"
-                  ? "high risk"
-                  : summary?.riskLevel === "medium"
-                  ? "medium risk"
-                  : "healthy"}
-              </strong>{" "}
-              attendance should receive targeted support.
-            </div>
-          </div>
-
-          <div className="card">
-            <h3>Recent sessions</h3>
-            {studentData.recentSessions.length === 0 ? (
-              <p className="subtle">No sessions have been logged yet for this student.</p>
-            ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Session</th>
-                    <th>Status</th>
-                    <th>Participation</th>
-                    <th>Bonus</th>
-                    <th>Notes</th>
+        {rosterLoading ? (
+          <div className="subtle">Loading roster...</div>
+        ) : rosterError ? (
+          <div className="error-message">{rosterError}</div>
+        ) : roster.length === 0 ? (
+          <div className="subtle">No students on this roster yet.</div>
+        ) : (
+          <table className="roster-table">
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Status</th>
+                <th>Participation</th>
+                <th>Bonus actions</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {roster.map((student) => {
+                const entry = entries[student.id] ?? createDefaultEntry();
+                return (
+                  <tr key={student.id}>
+                    <td>
+                      <div className="student-cell">
+                        <strong>{student.name}</strong>
+                        <span className="subtle">{student.cohort ?? "No cohort"}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <select
+                        value={entry.status}
+                        onChange={(event) =>
+                          updateEntry(student.id, "status", event.target.value as AttendanceStatus)
+                        }
+                      >
+                        <option value="present">Present</option>
+                        <option value="late">Late</option>
+                        <option value="excused">Excused</option>
+                        <option value="absent">Absent</option>
+                      </select>
+                    </td>
+                    <td>
+                      <div className="participation-cell">
+                        <input
+                          type="range"
+                          min={0}
+                          max={5}
+                          step={1}
+                          value={entry.participation}
+                          onChange={(event) =>
+                            updateEntry(student.id, "participation", Number(event.target.value))
+                          }
+                        />
+                        <span>{entry.participation}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="bonus-chip-group">
+                        {bonusOptions.map((bonus) => (
+                          <button
+                            key={bonus.key}
+                            type="button"
+                            className={
+                              entry.bonus.includes(bonus.key) ? "chip chip-active" : "chip"
+                            }
+                            onClick={() => toggleBonus(student.id, bonus.key)}
+                          >
+                            {bonus.label}
+                          </button>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <input
+                        className="note-input"
+                        placeholder="Optional quick note"
+                        value={entry.notes}
+                        onChange={(event) => updateEntry(student.id, "notes", event.target.value)}
+                      />
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {studentData.recentSessions.map((session) => {
-                    const occurred = session.occurredAt
-                      ? new Date(session.occurredAt).toLocaleString()
-                      : "—";
-                    const bonus = session.bonus.length
-                      ? session.bonus
-                          .map((item) => `${bonusLabels[item.code]} (+${item.points})`)
-                          .join(", ")
-                      : "—";
-                    return (
-                      <tr key={session.id}>
-                        <td>{occurred}</td>
-                        <td>{session.sessionName}</td>
-                        <td>
-                          <span className={statusTagClass[session.status]}>
-                            {statusLabel[session.status]}
-                          </span>
-                        </td>
-                        <td>{session.participation}</td>
-                        <td>{bonus}</td>
-                        <td>{session.notes || "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </>
-      )}
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="card stack">
+        <button
+          className="primary-btn"
+          onClick={handleSave}
+          disabled={saving || roster.length === 0 || !selectedCourseId}
+        >
+          {saving ? "Saving..." : "Save session"}
+        </button>
+        {saveError && <span className="tag danger">{saveError}</span>}
+        {submitted && <span className="tag success">Saved to database</span>}
+        <p className="subtle">
+          After connecting Google Classroom, the roster endpoint will pull live data before writing
+          to Postgres.
+        </p>
+      </div>
     </div>
   );
 };
 
-export default StudentDetailPage;
+export default DataInputPage;
