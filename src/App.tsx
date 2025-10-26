@@ -87,7 +87,7 @@ const MockLayout = () => {
           <Link to="/mock/leaderboard">Leaderboard</Link>
           {isTeacher ? (
             <>
-              <Link to="/mock/student">Student detail</Link>
+              <Link to="/mock/student">Student details</Link>
               <Link to="/mock/data-entry">Data input</Link>
             </>
           ) : (
