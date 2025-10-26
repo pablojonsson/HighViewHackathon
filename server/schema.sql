@@ -93,3 +93,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_student_google_course
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_student_user_course
   ON students(user_id, course_id);
+
+DO $$
+BEGIN
+  -- Only run if the table exists
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'attendance_records') THEN
+
+    -- Safely change participation column to NUMERIC(3,1)
+    BEGIN
+      ALTER TABLE attendance_records
+        ALTER COLUMN participation TYPE NUMERIC(3,1)
+        USING participation::NUMERIC;
+    EXCEPTION WHEN others THEN
+      RAISE NOTICE 'Could not alter participation column (maybe already changed): %', SQLERRM;
+    END;
+
+    -- Drop old constraint (if it exists)
+    BEGIN
+      ALTER TABLE attendance_records
+        DROP CONSTRAINT IF EXISTS attendance_records_participation_check;
+    EXCEPTION WHEN others THEN
+      RAISE NOTICE 'Constraint drop failed: %', SQLERRM;
+    END;
+
+    -- Add new constraint
+    BEGIN
+      ALTER TABLE attendance_records
+        ADD CONSTRAINT attendance_records_participation_check
+        CHECK (participation >= 0 AND participation <= 5);
+    EXCEPTION WHEN others THEN
+      RAISE NOTICE 'Constraint creation failed: %', SQLERRM;
+    END;
+
+  END IF;
+END $$;

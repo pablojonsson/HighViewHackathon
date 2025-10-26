@@ -38,3 +38,19 @@ export const withTransaction = async <T>(
 };
 
 export type { PoolClient } from "pg";
+
+type AttendanceStatus = "present" | "late" | "excused" | "absent";
+
+export const attendancePoints: Record<AttendanceStatus, number> = {
+  present: 5,
+  late: 3.5,
+  excused: 2.5,
+  absent: 0
+};
+
+export const bonusPointMap: Record<string, number> = {
+  participation: 1,
+  thank_you: 1,
+  video_content: 1,
+  additional_event: 1
+};
