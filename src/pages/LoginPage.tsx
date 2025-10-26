@@ -143,7 +143,7 @@ const LoginPage = () => {
 
     if (window.google?.accounts?.oauth2 && !codeClientRef.current) {
       initClient();
-      return () => {};
+      return () => { };
     }
 
     if (!script) {
@@ -192,7 +192,7 @@ const LoginPage = () => {
         <span className="pulse-shape pulse-2" />
         <span className="pulse-shape pulse-3" />
         <div className="login-card">
-          <h1 className="login-title">pulseboard</h1>
+          <h1 className="login-title">PulseBoard</h1>
           <p className="login-subtitle"> Track every heartbeat of engagement.</p>
           <button
             className="google-btn"

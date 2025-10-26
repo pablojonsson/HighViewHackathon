@@ -345,7 +345,6 @@ textarea {
   font-size: clamp(2.4rem, 4.6vw, 3rem);
   font-weight: 700;
   letter-spacing: 0.06em;
-  text-transform: lowercase;
   margin: 0;
 }
 
@@ -1115,10 +1114,12 @@ select {
     transform: scale(1);
     opacity: 0.85;
   }
+
   50% {
     transform: scale(1.06);
     opacity: 0.4;
   }
+
   100% {
     transform: scale(1);
     opacity: 0.85;
