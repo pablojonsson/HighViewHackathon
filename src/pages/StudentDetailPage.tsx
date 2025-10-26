@@ -364,7 +364,7 @@ const StudentDetailPage = () => {
 
   return (
     <div className="stack">
-      <div className="card stack">
+      <div className="card stack diagnostics-card">
         <header className="flex-between">
           <div>
             <h2>{isStudent ? "My Summary" : "Student diagnostics"}</h2>
